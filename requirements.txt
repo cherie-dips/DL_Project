@@ -1,0 +1,42 @@
+# Core Python libraries
+numpy==2.1.3
+pandas==2.2.3
+matplotlib==3.9.2
+seaborn==0.13.2
+tqdm==4.67.1
+
+# Machine Learning & Math
+scikit-learn==1.5.2
+scipy==1.14.1
+sympy==1.13.3
+joblib==1.4.2
+
+# Deep Learning & Vision
+torch>=2.2.0
+torchvision>=0.17.0
+torchaudio>=2.2.0
+opencv-python==4.11.0.86
+opencv-contrib-python==4.10.0.84
+Pillow==11.0.0
+
+# OCR / NLP / Transformers
+transformers>=4.40.0
+datasets>=2.20.0
+huggingface-hub>=0.22.0
+sentencepiece>=0.1.99
+evaluate>=0.4.2
+
+# Utilities
+awscli
+requests
+fastapi
+uvicorn
+
+# Visualization / Notebook
+jupyter
+ipykernel
+ipywidgets
+matplotlib-inline
+
+# Typing / Helpers
+typing-extensions

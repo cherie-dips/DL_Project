@@ -1,38 +1,74 @@
-# Ignore environment files
+# ==========================
+#  ENVIRONMENTS & CONFIG
+# ==========================
 .env
-
-# Ignore Python virtualenvs
+.env.local
 venv/
 env/
 hiertext_env/
 
-# Ignore image dataset folders (train/validation/test)
+# ==========================
+#  DATASETS / LARGE FILES
+# ==========================
+data/
+datasets/
 train/
 validation/
 test/
+*.tgz
+*.tar
+*.zip
+*.gz
+*.jsonl
+*.pt
+*.pth
+*.ckpt
+*.h5
 
-# Byte-compiled / optimized / DLL files
+# ==========================
+#  BYTECODE / CACHE
+# ==========================
 __pycache__/
 *.py[cod]
 *$py.class
 
-# Jupyter Notebook checkpoints
+# ==========================
+#  JUPYTER / NOTEBOOKS
+# ==========================
 .ipynb_checkpoints/
+*.nbconvert.ipynb
+*.ipynb_*
 
-# Mac OS files
-.DS_Store
+# ==========================
+#  LOGS / OUTPUTS
+# ==========================
+*.log
+*.out
+*.err
 
-# pip cache
-pip-wheel-metadata/
-
-# Distribution / packaging
+# ==========================
+#  PACKAGING / DIST
+# ==========================
 dist/
 build/
 *.egg-info/
+pip-wheel-metadata/
 
-# Logs
-*.log
-
-# Editor directories and files
+# ==========================
+#  EDITORS & OS FILES
+# ==========================
 .vscode/
 .idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.bak
+*.tmp
+
+# ==========================
+#  TEST / TEMP / DEV
+# ==========================
+.pytest_cache/
+.mypy_cache/
+.coverage
