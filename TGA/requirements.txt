@@ -1,0 +1,41 @@
+# PyTorch (CUDA 11.8)
+torch==2.2.0+cu118
+torchvision==0.17.0+cu118
+torchaudio==2.2.0+cu118
+--extra-index-url https://download.pytorch.org/whl/cu118
+
+# Detectron2 (installed from Git)
+# pip install 'git+https://github.com/facebookresearch/detectron2.git@v0.6'
+
+# Common scientific stack
+numpy==1.26.4
+scipy==1.12.0
+pandas==2.2.2
+
+# Image / CV
+opencv-python==4.9.0.80
+Pillow==10.3.0
+shapely==2.0.2
+pycocotools==2.0.7
+
+# Visualization
+matplotlib==3.8.3
+seaborn==0.13.2
+
+# Huggingface / Protobuf
+huggingface-hub==0.21.4
+protobuf==4.25.3
+
+# Detectron2 dependencies
+yacs==0.1.8
+omegaconf==2.3.0
+fvcore==0.1.5.post20221221
+iopath==0.1.10
+termcolor==2.4.0
+tqdm==4.66.2
+
+# Optional
+pytest==8.0.2
+ipykernel==6.29.3
+jupyterlab==4.1.2
+

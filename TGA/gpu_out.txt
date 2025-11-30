@@ -1,0 +1,3 @@
+CUDA available: True
+Device count: 1
+Device name: Tesla V100-PCIE-32GB
