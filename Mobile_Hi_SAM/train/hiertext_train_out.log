@@ -1,0 +1,140 @@
+Job started on: vsky006
+Time: Sat Nov 29 12:24:46 IST 2025
+================================
+Python: /home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/bin/python
+name, memory.total [MiB]
+Tesla V100-PCIE-32GB, 32768 MiB
+HierText root: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext
+Annotation file: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/gt/train.jsonl
+-rw-r--r-- 1 px151.visitor hpc_vresearcher 993M Oct 23 13:00 /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/gt/train.jsonl
+
+Using device: cuda
+GPU: Tesla V100-PCIE-32GB
+
+Loading dataset...
+[HierText] Loading annotations from: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/gt/train.jsonl
+[HierText] Images folder: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/train
+================================
+Job finished at: Sat Nov 29 12:26:30 IST 2025
+Job started on: vsky006
+Time: Sat Nov 29 12:32:39 IST 2025
+================================
+Python: /home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/bin/python
+name, memory.total [MiB]
+Tesla V100-PCIE-32GB, 32768 MiB
+HierText root: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext
+Annotation file: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/gt/train.jsonl
+-rw-r--r-- 1 px151.visitor hpc_vresearcher 993M Oct 23 13:00 /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/gt/train.jsonl
+
+Using device: cuda
+GPU: Tesla V100-PCIE-32GB
+
+Loading dataset...
+[HierText] Loading annotations from: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/gt/train.jsonl
+[HierText] Images folder: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/train
+[HierText] Parsing JSON file (this may take a moment)...
+[HierText] Found 8281 total annotations
+[HierText] Using 200 samples for training
+
+Loading model...
+[MobileHiSAM] Loading MobileSAM encoder...
+[MobileSAMEncoder] Loading checkpoint from ../../MobileSAM/weights/mobile_sam.pt
+[MobileSAMEncoder] ✓ Checkpoint loaded successfully
+[MobileHiSAM] Building adapter...
+[MobileHiSAM] Building ModalAligner...
+[MobileHiSAM] Loading PromptEncoder...
+[MobileHiSAM] Building MaskDecoder...
+Trainable parameters: 5,488,933
+
+Training for 5 epochs...
+
+============================================================
+Epoch 1/5
+============================================================
+  Batch 10/100 | Loss: 0.962559
+  Batch 20/100 | Loss: 0.950713
+  Batch 30/100 | Loss: 0.850099
+  Batch 40/100 | Loss: 0.985881
+  Batch 50/100 | Loss: 0.990365
+  Batch 60/100 | Loss: 0.994548
+  Batch 70/100 | Loss: 0.995619
+  Batch 80/100 | Loss: 0.977891
+  Batch 90/100 | Loss: 0.988517
+  Batch 100/100 | Loss: 0.932648
+
+Epoch 1 Summary: Average Loss = 0.926987
+Saved: hiertext_epoch1.pth
+
+============================================================
+Epoch 2/5
+============================================================
+  Batch 10/100 | Loss: 0.990633
+  Batch 20/100 | Loss: 0.973109
+  Batch 30/100 | Loss: 0.897408
+  Batch 40/100 | Loss: 0.979418
+  Batch 50/100 | Loss: 0.991053
+  Batch 60/100 | Loss: 0.994484
+  Batch 70/100 | Loss: 0.950397
+  Batch 80/100 | Loss: 0.480708
+  Batch 90/100 | Loss: 0.996754
+  Batch 100/100 | Loss: 0.992871
+
+Epoch 2 Summary: Average Loss = 0.923600
+Saved: hiertext_epoch2.pth
+
+============================================================
+Epoch 3/5
+============================================================
+  Batch 10/100 | Loss: 0.945475
+  Batch 20/100 | Loss: 0.437678
+  Batch 30/100 | Loss: 0.988396
+  Batch 40/100 | Loss: 0.895845
+  Batch 50/100 | Loss: 0.972336
+  Batch 60/100 | Loss: 0.847415
+  Batch 70/100 | Loss: 0.999859
+  Batch 80/100 | Loss: 0.999944
+  Batch 90/100 | Loss: 0.999902
+  Batch 100/100 | Loss: 0.999789
+
+Epoch 3 Summary: Average Loss = 0.926711
+Saved: hiertext_epoch3.pth
+
+============================================================
+Epoch 4/5
+============================================================
+  Batch 10/100 | Loss: 0.998387
+  Batch 20/100 | Loss: 0.974139
+  Batch 30/100 | Loss: 0.873506
+  Batch 40/100 | Loss: 0.889863
+  Batch 50/100 | Loss: 0.902909
+  Batch 60/100 | Loss: 0.865718
+  Batch 70/100 | Loss: 0.862283
+  Batch 80/100 | Loss: 0.932730
+  Batch 90/100 | Loss: 0.775425
+  Batch 100/100 | Loss: 0.853084
+
+Epoch 4 Summary: Average Loss = 0.881953
+Saved: hiertext_epoch4.pth
+
+============================================================
+Epoch 5/5
+============================================================
+  Batch 10/100 | Loss: 0.902829
+  Batch 20/100 | Loss: 0.700987
+  Batch 30/100 | Loss: 0.842551
+  Batch 40/100 | Loss: 0.703782
+  Batch 50/100 | Loss: 0.999998
+  Batch 60/100 | Loss: 0.764277
+  Batch 70/100 | Loss: 0.966358
+  Batch 80/100 | Loss: 0.838150
+  Batch 90/100 | Loss: 0.966879
+  Batch 100/100 | Loss: 0.542580
+
+Epoch 5 Summary: Average Loss = 0.806130
+Saved: hiertext_epoch5.pth
+
+============================================================
+✓ Training complete!
+============================================================
+================================
+Job finished at: Sat Nov 29 12:35:25 IST 2025

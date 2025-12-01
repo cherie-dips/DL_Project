@@ -1,0 +1,40 @@
+#!/bin/bash
+#PBS -N hiertext_train
+#PBS -P hpc.plaksha.px151 
+#PBS -q high
+#PBS -l select=1:ncpus=4:ngpus=1:centos=skylake
+#PBS -l walltime=04:00:00
+#PBS -o hiertext_train_out.log
+#PBS -e hiertext_train_err.log
+
+echo "Job started on: $(hostname)"
+echo "Time: $(date)"
+echo "================================"
+
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate mobile_hisam
+
+echo "Python: $(which python)"
+nvidia-smi --query-gpu=name,memory.total --format=csv
+
+cd $HOME/scratch/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/train
+
+# Correct path to hiertext
+HIERTEXT_ROOT="/scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext"
+
+echo "HierText root: $HIERTEXT_ROOT"
+echo "Annotation file: $HIERTEXT_ROOT/gt/train.jsonl"
+ls -lh $HIERTEXT_ROOT/gt/train.jsonl
+echo ""
+
+# Run training
+python train_hiertext.py \
+    --root $HIERTEXT_ROOT \
+    --epochs 5 \
+    --batch_size 2 \
+    --lr 1e-4 \
+    --max_samples 200 \
+    --checkpoint_encoder ../../MobileSAM/weights/mobile_sam.pt
+
+echo "================================"
+echo "Job finished at: $(date)"

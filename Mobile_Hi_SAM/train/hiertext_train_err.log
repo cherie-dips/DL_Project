@@ -1,0 +1,42 @@
+/home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/lib/python3.9/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+/home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/lib/python3.9/site-packages/timm/models/registry.py:4: FutureWarning: Importing from timm.models.registry is deprecated, please import via timm.models
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.models", FutureWarning)
+/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/mobile_sam/modeling/tiny_vit_sam.py:656: UserWarning: Overwriting tiny_vit_5m_224 in registry with mobile_sam.modeling.tiny_vit_sam.tiny_vit_5m_224. This is because the name being registered conflicts with an existing name. Please check if this is not expected.
+  return register_model(fn_wrapper)
+/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/mobile_sam/modeling/tiny_vit_sam.py:656: UserWarning: Overwriting tiny_vit_11m_224 in registry with mobile_sam.modeling.tiny_vit_sam.tiny_vit_11m_224. This is because the name being registered conflicts with an existing name. Please check if this is not expected.
+  return register_model(fn_wrapper)
+/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/mobile_sam/modeling/tiny_vit_sam.py:656: UserWarning: Overwriting tiny_vit_21m_224 in registry with mobile_sam.modeling.tiny_vit_sam.tiny_vit_21m_224. This is because the name being registered conflicts with an existing name. Please check if this is not expected.
+  return register_model(fn_wrapper)
+/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/mobile_sam/modeling/tiny_vit_sam.py:656: UserWarning: Overwriting tiny_vit_21m_384 in registry with mobile_sam.modeling.tiny_vit_sam.tiny_vit_21m_384. This is because the name being registered conflicts with an existing name. Please check if this is not expected.
+  return register_model(fn_wrapper)
+/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/mobile_sam/modeling/tiny_vit_sam.py:656: UserWarning: Overwriting tiny_vit_21m_512 in registry with mobile_sam.modeling.tiny_vit_sam.tiny_vit_21m_512. This is because the name being registered conflicts with an existing name. Please check if this is not expected.
+  return register_model(fn_wrapper)
+Traceback (most recent call last):
+  File "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/train/train_hiertext.py", line 263, in <module>
+    main()
+  File "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/train/train_hiertext.py", line 215, in main
+    dataset = HierTextDataset(args.root, split="train", max_items=args.max_samples)
+  File "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/train/train_hiertext.py", line 45, in __init__
+    self.records.append(json.loads(line))
+  File "/home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/lib/python3.9/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+  File "/home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/lib/python3.9/json/decoder.py", line 337, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+  File "/home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/lib/python3.9/json/decoder.py", line 353, in raw_decode
+    obj, end = self.scan_once(s, idx)
+json.decoder.JSONDecodeError: Expecting property name enclosed in double quotes: line 2 column 1 (char 2)
+/home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/lib/python3.9/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+/home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/lib/python3.9/site-packages/timm/models/registry.py:4: FutureWarning: Importing from timm.models.registry is deprecated, please import via timm.models
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.models", FutureWarning)
+/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/mobile_sam/modeling/tiny_vit_sam.py:656: UserWarning: Overwriting tiny_vit_5m_224 in registry with mobile_sam.modeling.tiny_vit_sam.tiny_vit_5m_224. This is because the name being registered conflicts with an existing name. Please check if this is not expected.
+  return register_model(fn_wrapper)
+/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/mobile_sam/modeling/tiny_vit_sam.py:656: UserWarning: Overwriting tiny_vit_11m_224 in registry with mobile_sam.modeling.tiny_vit_sam.tiny_vit_11m_224. This is because the name being registered conflicts with an existing name. Please check if this is not expected.
+  return register_model(fn_wrapper)
+/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/mobile_sam/modeling/tiny_vit_sam.py:656: UserWarning: Overwriting tiny_vit_21m_224 in registry with mobile_sam.modeling.tiny_vit_sam.tiny_vit_21m_224. This is because the name being registered conflicts with an existing name. Please check if this is not expected.
+  return register_model(fn_wrapper)
+/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/mobile_sam/modeling/tiny_vit_sam.py:656: UserWarning: Overwriting tiny_vit_21m_384 in registry with mobile_sam.modeling.tiny_vit_sam.tiny_vit_21m_384. This is because the name being registered conflicts with an existing name. Please check if this is not expected.
+  return register_model(fn_wrapper)
+/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/mobile_sam/modeling/tiny_vit_sam.py:656: UserWarning: Overwriting tiny_vit_21m_512 in registry with mobile_sam.modeling.tiny_vit_sam.tiny_vit_21m_512. This is because the name being registered conflicts with an existing name. Please check if this is not expected.
+  return register_model(fn_wrapper)

@@ -1,0 +1,38 @@
+Traceback (most recent call last):
+  File "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/train/train_hiertext.py", line 24, in <module>
+    from Mobile_Hi_SAM.models.mobile_hisam_model import MobileHiSAM
+ModuleNotFoundError: No module named 'Mobile_Hi_SAM'
+Traceback (most recent call last):
+  File "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/train/train_hiertext.py", line 32, in <module>
+    from Mobile_Hi_SAM.models.mobile_hisam_model import MobileHiSAM
+ModuleNotFoundError: No module named 'Mobile_Hi_SAM'
+Traceback (most recent call last):
+  File "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/train/train_hiertext.py", line 32, in <module>
+    from Mobile_Hi_SAM.models.mobile_hisam_model import MobileHiSAM
+ModuleNotFoundError: No module named 'Mobile_Hi_SAM'
+/home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/lib/python3.9/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+/home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/lib/python3.9/site-packages/timm/models/registry.py:4: FutureWarning: Importing from timm.models.registry is deprecated, please import via timm.models
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.models", FutureWarning)
+/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/mobile_sam/modeling/tiny_vit_sam.py:656: UserWarning: Overwriting tiny_vit_5m_224 in registry with mobile_sam.modeling.tiny_vit_sam.tiny_vit_5m_224. This is because the name being registered conflicts with an existing name. Please check if this is not expected.
+  return register_model(fn_wrapper)
+/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/mobile_sam/modeling/tiny_vit_sam.py:656: UserWarning: Overwriting tiny_vit_11m_224 in registry with mobile_sam.modeling.tiny_vit_sam.tiny_vit_11m_224. This is because the name being registered conflicts with an existing name. Please check if this is not expected.
+  return register_model(fn_wrapper)
+/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/mobile_sam/modeling/tiny_vit_sam.py:656: UserWarning: Overwriting tiny_vit_21m_224 in registry with mobile_sam.modeling.tiny_vit_sam.tiny_vit_21m_224. This is because the name being registered conflicts with an existing name. Please check if this is not expected.
+  return register_model(fn_wrapper)
+/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/mobile_sam/modeling/tiny_vit_sam.py:656: UserWarning: Overwriting tiny_vit_21m_384 in registry with mobile_sam.modeling.tiny_vit_sam.tiny_vit_21m_384. This is because the name being registered conflicts with an existing name. Please check if this is not expected.
+  return register_model(fn_wrapper)
+/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/mobile_sam/modeling/tiny_vit_sam.py:656: UserWarning: Overwriting tiny_vit_21m_512 in registry with mobile_sam.modeling.tiny_vit_sam.tiny_vit_21m_512. This is because the name being registered conflicts with an existing name. Please check if this is not expected.
+  return register_model(fn_wrapper)
+Traceback (most recent call last):
+  File "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/train/train_hiertext.py", line 186, in <module>
+    main()
+  File "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/train/train_hiertext.py", line 161, in main
+    dataset = HierTextDataset(args.root, split="train", max_items=200)
+  File "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/train/train_hiertext.py", line 55, in __init__
+    with gzip.open(self.jsonl_path, "rt", encoding="utf-8") as f:
+  File "/home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/lib/python3.9/gzip.py", line 58, in open
+    binary_file = GzipFile(filename, gz_mode, compresslevel)
+  File "/home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/lib/python3.9/gzip.py", line 173, in __init__
+    fileobj = self.myfileobj = builtins.open(filename, mode or 'rb')
+FileNotFoundError: [Errno 2] No such file or directory: '/home/hpc/visitor/px151.visitor/scratch/DL/DL_Project/hiertext/train/train.jsonl.gz'

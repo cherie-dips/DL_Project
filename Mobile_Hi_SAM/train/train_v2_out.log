@@ -1,0 +1,876 @@
+======================================
+Job started: Sat Nov 29 16:11:51 IST 2025
+Node: vsky001
+======================================
+Python: /home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/bin/python
+CUDA visible devices: 
+======================================
+GPU Info:
+Sat Nov 29 16:11:51 2025       
++-----------------------------------------------------------------------------+
+| NVIDIA-SMI 525.105.17   Driver Version: 525.105.17   CUDA Version: 12.0     |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|                               |                      |               MIG M. |
+|===============================+======================+======================|
+|   0  Tesla V100-PCIE...  Off  | 00000000:D8:00.0 Off |                    0 |
+| N/A   27C    P0    24W / 250W |      6MiB / 32768MiB |      0%      Default |
+|                               |                      |                  N/A |
++-------------------------------+----------------------+----------------------+
+                                                                               
++-----------------------------------------------------------------------------+
+| Processes:                                                                  |
+|  GPU   GI   CI        PID   Type   Process name                  GPU Memory |
+|        ID   ID                                                   Usage      |
+|=============================================================================|
+|  No running processes found                                                 |
++-----------------------------------------------------------------------------+
+======================================
+Starting hierarchical training V2...
+Training script: train_hierarchical_v2.py
+Using device: cuda
+GPU: Tesla V100-PCIE-32GB
+Output directory: hierarchical_training_test_run
+Checkpoints: hierarchical_training_test_run/checkpoints
+
+Loading dataset...
+[HierText] Loading annotations from: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/gt/train.jsonl
+[HierText] Images folder: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/train
+[HierText] Found 8281 total annotations
+[HierText] Filtered to 8281 with hierarchy
+[HierText] Using 100 samples
+Dataset size: 100
+Batches per epoch: 25
+
+Loading model...
+[MobileHiSAM] Loading MobileSAM encoder...
+[MobileSAMEncoder] Loading checkpoint from /scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/weights/mobile_sam.pt
+[MobileSAMEncoder] ✓ Checkpoint loaded successfully
+[MobileHiSAM] Building adapter...
+[MobileHiSAM] Building ModalAligner...
+[MobileHiSAM] Loading PromptEncoder...
+[MobileHiSAM] Building MaskDecoder...
+[MobileHiSAM] Adding HierarchicalDecoder...
+Trainable parameters: 6,530,350
+Total parameters: 12,602,102
+
+Using HierarchicalLoss (Dice + Focal[20.0] + IoU)
+
+============================================================
+Starting training from epoch 1
+============================================================
+
+
+============================================================
+Epoch 1/1
+============================================================
+
+Epoch 1 Summary:
+  Average Loss: 6.082964
+  Paragraph: 2.151126
+  Line: 1.970073
+  Word: 1.961766
+  Learning Rate: 1.000000e-06
+  Saved: hierarchical_training_test_run/checkpoints/epoch_01.pth
+  ✓ New best model saved! (loss: 6.082964)
+
+============================================================
+✓ Training complete!
+  Best loss: 6.082964
+  Output: hierarchical_training_test_run
+  Best checkpoint: hierarchical_training_test_run/checkpoints/best_model.pth
+============================================================
+
+
+✓ Ready for validation!
+Run: python ../evaluation/evaluate_hisam_metrics.py --run_dir hierarchical_training_test_run
+======================================
+Training finished: Sat Nov 29 16:14:07 IST 2025
+Exit code: 0
+======================================
+✓ Training successful!
+Starting validation...
+Run directory: hierarchical_training_test_run
+Using device: cuda
+
+📂 Loading checkpoint: ../train/hierarchical_training_test_run/checkpoints/best_model.pth
+[MobileHiSAM] Loading MobileSAM encoder...
+[MobileSAMEncoder] Loading checkpoint from /scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/weights/mobile_sam.pt
+[MobileSAMEncoder] ✓ Checkpoint loaded successfully
+[MobileHiSAM] Building adapter...
+[MobileHiSAM] Building ModalAligner...
+[MobileHiSAM] Loading PromptEncoder...
+[MobileHiSAM] Building MaskDecoder...
+✓ Checkpoint loaded successfully
+
+📊 Loading val dataset...
+[HierText] Loading annotations from: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/gt/val.jsonl
+[HierText] Images folder: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/val
+✗ Validation failed with exit code: 1
+======================================
+Job finished: Sat Nov 29 16:14:15 IST 2025
+======================================
+======================================
+Job started: Sat Nov 29 16:17:34 IST 2025
+Node: vsky001
+======================================
+Python: /home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/bin/python
+CUDA visible devices: 
+======================================
+GPU Info:
+Sat Nov 29 16:17:34 2025       
++-----------------------------------------------------------------------------+
+| NVIDIA-SMI 525.105.17   Driver Version: 525.105.17   CUDA Version: 12.0     |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|                               |                      |               MIG M. |
+|===============================+======================+======================|
+|   0  Tesla V100-PCIE...  Off  | 00000000:D8:00.0 Off |                    0 |
+| N/A   27C    P0    24W / 250W |      6MiB / 32768MiB |      0%      Default |
+|                               |                      |                  N/A |
++-------------------------------+----------------------+----------------------+
+                                                                               
++-----------------------------------------------------------------------------+
+| Processes:                                                                  |
+|  GPU   GI   CI        PID   Type   Process name                  GPU Memory |
+|        ID   ID                                                   Usage      |
+|=============================================================================|
+|  No running processes found                                                 |
++-----------------------------------------------------------------------------+
+======================================
+Starting hierarchical training V2...
+Training script: train_hierarchical_v2.py
+Using device: cuda
+GPU: Tesla V100-PCIE-32GB
+Output directory: hierarchical_training_full_50ep
+Checkpoints: hierarchical_training_full_50ep/checkpoints
+
+Loading dataset...
+[HierText] Loading annotations from: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/gt/train.jsonl
+[HierText] Images folder: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/train
+[HierText] Found 8281 total annotations
+[HierText] Filtered to 8281 with hierarchy
+[HierText] Using 8281 samples
+Dataset size: 8281
+Batches per epoch: 1036
+
+Loading model...
+[MobileHiSAM] Loading MobileSAM encoder...
+[MobileSAMEncoder] Loading checkpoint from /scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/weights/mobile_sam.pt
+[MobileSAMEncoder] ✓ Checkpoint loaded successfully
+[MobileHiSAM] Building adapter...
+[MobileHiSAM] Building ModalAligner...
+[MobileHiSAM] Loading PromptEncoder...
+[MobileHiSAM] Building MaskDecoder...
+[MobileHiSAM] Adding HierarchicalDecoder...
+Trainable parameters: 6,530,350
+Total parameters: 12,602,102
+
+Using HierarchicalLoss (Dice + Focal[20.0] + IoU)
+
+============================================================
+Starting training from epoch 1
+============================================================
+
+
+============================================================
+Epoch 1/50
+============================================================
+======================================
+Job started: Sat Nov 29 16:26:01 IST 2025
+Node: vsky001
+======================================
+Python: /home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/bin/python
+CUDA visible devices: 
+======================================
+GPU Info:
+Sat Nov 29 16:26:01 2025       
++-----------------------------------------------------------------------------+
+| NVIDIA-SMI 525.105.17   Driver Version: 525.105.17   CUDA Version: 12.0     |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|                               |                      |               MIG M. |
+|===============================+======================+======================|
+|   0  Tesla V100-PCIE...  Off  | 00000000:D8:00.0 Off |                    0 |
+| N/A   29C    P0    25W / 250W |      6MiB / 32768MiB |      0%      Default |
+|                               |                      |                  N/A |
++-------------------------------+----------------------+----------------------+
+                                                                               
++-----------------------------------------------------------------------------+
+| Processes:                                                                  |
+|  GPU   GI   CI        PID   Type   Process name                  GPU Memory |
+|        ID   ID                                                   Usage      |
+|=============================================================================|
+|  No running processes found                                                 |
++-----------------------------------------------------------------------------+
+======================================
+Starting hierarchical training V2...
+Training script: train_hierarchical_v2.py
+Using device: cuda
+GPU: Tesla V100-PCIE-32GB
+Output directory: hierarchical_training_test_run
+Checkpoints: hierarchical_training_test_run/checkpoints
+
+Loading dataset...
+[HierText] Loading annotations from: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/gt/train.jsonl
+[HierText] Images folder: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/train
+[HierText] Found 8281 total annotations
+[HierText] Filtered to 8281 with hierarchy
+[HierText] Using 100 samples
+Dataset size: 100
+Batches per epoch: 25
+
+Loading model...
+[MobileHiSAM] Loading MobileSAM encoder...
+[MobileSAMEncoder] Loading checkpoint from /scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/weights/mobile_sam.pt
+[MobileSAMEncoder] ✓ Checkpoint loaded successfully
+[MobileHiSAM] Building adapter...
+[MobileHiSAM] Building ModalAligner...
+[MobileHiSAM] Loading PromptEncoder...
+[MobileHiSAM] Building MaskDecoder...
+[MobileHiSAM] Adding HierarchicalDecoder...
+Trainable parameters: 6,530,350
+Total parameters: 12,602,102
+
+Using HierarchicalLoss (Dice + Focal[20.0] + IoU)
+
+============================================================
+Starting training from epoch 1
+============================================================
+
+
+============================================================
+Epoch 1/1
+============================================================
+
+Epoch 1 Summary:
+  Average Loss: 5.938482
+  Paragraph: 2.160802
+  Line: 1.924513
+  Word: 1.853167
+  Learning Rate: 1.000000e-06
+  Saved: hierarchical_training_test_run/checkpoints/epoch_01.pth
+  ✓ New best model saved! (loss: 5.938482)
+
+============================================================
+✓ Training complete!
+  Best loss: 5.938482
+  Output: hierarchical_training_test_run
+  Best checkpoint: hierarchical_training_test_run/checkpoints/best_model.pth
+============================================================
+
+
+✓ Ready for validation!
+Run: python ../evaluation/evaluate_hisam_metrics.py --run_dir hierarchical_training_test_run
+======================================
+Training finished: Sat Nov 29 16:27:08 IST 2025
+Exit code: 0
+======================================
+✓ Training successful!
+Starting validation...
+Run directory: hierarchical_training_full_50ep
+✗ Checkpoint not found at: hierarchical_training_full_50ep/checkpoints/best_model.pth
+✗ Validation failed with exit code: 1
+======================================
+Job finished: Sat Nov 29 16:27:08 IST 2025
+======================================
+======================================
+Job started: Sat Nov 29 16:36:25 IST 2025
+Node: vsky006
+======================================
+Python: /home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/bin/python
+CUDA visible devices: 
+======================================
+GPU Info:
+Sat Nov 29 16:36:27 2025       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 550.90.07              Driver Version: 550.90.07      CUDA Version: 12.4     |
+|-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  Tesla V100-PCIE-32GB           Off |   00000000:86:00.0 Off |                    0 |
+| N/A   51C    P0             43W /  250W |       1MiB /  32768MiB |      1%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+                                                                                         
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI        PID   Type   Process name                              GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+======================================
+Starting hierarchical training V2...
+Training script: train_hierarchical_v2.py
+Using device: cuda
+GPU: Tesla V100-PCIE-32GB
+Output directory: hierarchical_training_test_run
+Checkpoints: hierarchical_training_test_run/checkpoints
+
+Loading dataset...
+[HierText] Loading annotations from: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/gt/train.jsonl
+[HierText] Images folder: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/train
+[HierText] Found 8281 total annotations
+[HierText] Filtered to 8281 with hierarchy
+[HierText] Using 100 samples
+Dataset size: 100
+Batches per epoch: 25
+
+Loading model...
+[MobileHiSAM] Loading MobileSAM encoder...
+[MobileSAMEncoder] Loading checkpoint from /scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/weights/mobile_sam.pt
+[MobileSAMEncoder] ✓ Checkpoint loaded successfully
+[MobileHiSAM] Building adapter...
+[MobileHiSAM] Building ModalAligner...
+[MobileHiSAM] Loading PromptEncoder...
+[MobileHiSAM] Building MaskDecoder...
+[MobileHiSAM] Adding HierarchicalDecoder...
+Trainable parameters: 6,530,350
+Total parameters: 12,602,102
+
+Using HierarchicalLoss (Dice + Focal[20.0] + IoU)
+
+============================================================
+Starting training from epoch 1
+============================================================
+
+
+============================================================
+Epoch 1/1
+============================================================
+
+Epoch 1 Summary:
+  Average Loss: 6.181558
+  Paragraph: 2.136773
+  Line: 2.090065
+  Word: 1.954720
+  Learning Rate: 1.000000e-06
+  Saved: hierarchical_training_test_run/checkpoints/epoch_01.pth
+  ✓ New best model saved! (loss: 6.181558)
+
+============================================================
+✓ Training complete!
+  Best loss: 6.181558
+  Output: hierarchical_training_test_run
+  Best checkpoint: hierarchical_training_test_run/checkpoints/best_model.pth
+============================================================
+
+
+✓ Ready for validation!
+Run: python ../evaluation/evaluate_hisam_metrics.py --run_dir hierarchical_training_test_run
+======================================
+Training finished: Sat Nov 29 16:37:46 IST 2025
+Exit code: 0
+======================================
+✓ Training successful!
+Starting validation...
+Run directory: hierarchical_training_full_50ep
+Directory contents:
+total 16
+drwxr-xr-x  3 px151.visitor hpc_vresearcher 4096 Nov 29 16:17 .
+drwxr-xr-x 10 px151.visitor hpc_vresearcher 4096 Nov 29 16:36 ..
+drwxr-xr-x  2 px151.visitor hpc_vresearcher 4096 Nov 29 16:17 checkpoints
+-rw-r--r--  1 px151.visitor hpc_vresearcher  583 Nov 29 16:17 config.json
+Checkpoints directory exists:
+total 8
+drwxr-xr-x 2 px151.visitor hpc_vresearcher 4096 Nov 29 16:17 .
+drwxr-xr-x 3 px151.visitor hpc_vresearcher 4096 Nov 29 16:17 ..
+✗ Checkpoint not found at: hierarchical_training_full_50ep/checkpoints/best_model.pth
+Available checkpoints:
+======================================
+Job finished: Sat Nov 29 16:37:47 IST 2025
+======================================
+======================================
+Job started: Sat Nov 29 16:39:37 IST 2025
+Node: vsky006
+======================================
+Python: /home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/bin/python
+CUDA visible devices: 
+======================================
+GPU Info:
+Sat Nov 29 16:39:38 2025       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 550.90.07              Driver Version: 550.90.07      CUDA Version: 12.4     |
+|-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  Tesla V100-PCIE-32GB           Off |   00000000:86:00.0 Off |                    0 |
+| N/A   54C    P0             44W /  250W |       1MiB /  32768MiB |      1%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+                                                                                         
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI        PID   Type   Process name                              GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+======================================
+Starting hierarchical training V2...
+Training script: train_hierarchical_v2.py
+Using device: cuda
+GPU: Tesla V100-PCIE-32GB
+Output directory: hierarchical_training_test_run
+Checkpoints: hierarchical_training_test_run/checkpoints
+
+Loading dataset...
+[HierText] Loading annotations from: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/gt/train.jsonl
+[HierText] Images folder: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/train
+[HierText] Found 8281 total annotations
+[HierText] Filtered to 8281 with hierarchy
+[HierText] Using 100 samples
+Dataset size: 100
+Batches per epoch: 25
+
+Loading model...
+[MobileHiSAM] Loading MobileSAM encoder...
+[MobileSAMEncoder] Loading checkpoint from /scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/weights/mobile_sam.pt
+[MobileSAMEncoder] ✓ Checkpoint loaded successfully
+[MobileHiSAM] Building adapter...
+[MobileHiSAM] Building ModalAligner...
+[MobileHiSAM] Loading PromptEncoder...
+[MobileHiSAM] Building MaskDecoder...
+[MobileHiSAM] Adding HierarchicalDecoder...
+Trainable parameters: 6,530,350
+Total parameters: 12,602,102
+
+Using HierarchicalLoss (Dice + Focal[20.0] + IoU)
+
+============================================================
+Starting training from epoch 1
+============================================================
+
+
+============================================================
+Epoch 1/1
+============================================================
+
+Epoch 1 Summary:
+  Average Loss: 5.876465
+  Paragraph: 2.110944
+  Line: 1.828010
+  Word: 1.937511
+  Learning Rate: 1.000000e-06
+  Saved: hierarchical_training_test_run/checkpoints/epoch_01.pth
+  ✓ New best model saved! (loss: 5.876465)
+
+============================================================
+✓ Training complete!
+  Best loss: 5.876465
+  Output: hierarchical_training_test_run
+  Best checkpoint: hierarchical_training_test_run/checkpoints/best_model.pth
+============================================================
+
+
+✓ Ready for validation!
+Run: python ../evaluation/evaluate_hisam_metrics.py --run_dir hierarchical_training_test_run
+======================================
+Training finished: Sat Nov 29 16:40:42 IST 2025
+Exit code: 0
+======================================
+✓ Training successful!
+Starting validation...
+✗ Could not find any directory with checkpoints
+All training directories:
+drwxr-xr-x 3 px151.visitor hpc_vresearcher 4096 Nov 29 16:17 hierarchical_training_full_50ep/
+drwxr-xr-x 3 px151.visitor hpc_vresearcher 4096 Nov 29 16:14 hierarchical_training_test_run/
+drwxr-xr-x 2 px151.visitor hpc_vresearcher 4096 Nov 29 15:14 hierarchical_training_20251129_145407/
+drwxr-xr-x 2 px151.visitor hpc_vresearcher 4096 Nov 29 14:42 hierarchical_training_20251129_144240/
+drwxr-xr-x 2 px151.visitor hpc_vresearcher 4096 Nov 29 14:38 hierarchical_training_20251129_143807/
+drwxr-xr-x 2 px151.visitor hpc_vresearcher 4096 Nov 29 14:27 hierarchical_training_20251129_142244/
+drwxr-xr-x 2 px151.visitor hpc_vresearcher 4096 Nov 29 14:16 hierarchical_training_20251129_141642/
+
+Checking for checkpoint files:
+hierarchical_training_20251129_142244/hierarchical_epoch1_loss2.2490.pth
+hierarchical_training_20251129_142244/hierarchical_epoch2_loss2.0633.pth
+hierarchical_training_20251129_142244/best_model.pth
+hierarchical_training_20251129_145407/hierarchical_epoch5_loss1.2435.pth
+hierarchical_training_20251129_145407/hierarchical_epoch6_loss1.2160.pth
+hierarchical_training_20251129_145407/hierarchical_epoch2_loss1.3646.pth
+hierarchical_training_20251129_145407/hierarchical_epoch4_loss1.2676.pth
+hierarchical_training_20251129_145407/hierarchical_epoch3_loss1.3003.pth
+hierarchical_training_20251129_145407/hierarchical_epoch7_loss1.1931.pth
+hierarchical_training_20251129_145407/hierarchical_epoch9_loss1.1608.pth
+hierarchical_training_20251129_145407/hierarchical_epoch8_loss1.1787.pth
+hierarchical_training_20251129_145407/hierarchical_epoch10_loss1.1535.pth
+hierarchical_training_20251129_145407/hierarchical_epoch1_loss1.7410.pth
+hierarchical_training_20251129_145407/best_model.pth
+hierarchical_training_test_run/checkpoints/best_model.pth
+hierarchical_training_test_run/checkpoints/epoch_01.pth
+======================================
+Job finished: Sat Nov 29 16:40:42 IST 2025
+======================================
+======================================
+Job started: Sat Nov 29 16:43:40 IST 2025
+Node: vsky006
+======================================
+Python: /home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/bin/python
+CUDA visible devices: 
+======================================
+GPU Info:
+Sat Nov 29 16:43:42 2025       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 550.90.07              Driver Version: 550.90.07      CUDA Version: 12.4     |
+|-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  Tesla V100-PCIE-32GB           Off |   00000000:86:00.0 Off |                    0 |
+| N/A   56C    P0             45W /  250W |       1MiB /  32768MiB |      1%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+                                                                                         
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI        PID   Type   Process name                              GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+======================================
+Starting hierarchical training V2...
+Training script: train_hierarchical_v2.py
+Using device: cuda
+GPU: Tesla V100-PCIE-32GB
+Output directory: hierarchical_training_test_run
+Checkpoints: hierarchical_training_test_run/checkpoints
+
+Loading dataset...
+[HierText] Loading annotations from: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/gt/train.jsonl
+[HierText] Images folder: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/train
+[HierText] Found 8281 total annotations
+[HierText] Filtered to 8281 with hierarchy
+[HierText] Using 100 samples
+Dataset size: 100
+Batches per epoch: 25
+
+Loading model...
+[MobileHiSAM] Loading MobileSAM encoder...
+[MobileSAMEncoder] Loading checkpoint from /scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/weights/mobile_sam.pt
+[MobileSAMEncoder] ✓ Checkpoint loaded successfully
+[MobileHiSAM] Building adapter...
+[MobileHiSAM] Building ModalAligner...
+[MobileHiSAM] Loading PromptEncoder...
+[MobileHiSAM] Building MaskDecoder...
+[MobileHiSAM] Adding HierarchicalDecoder...
+Trainable parameters: 6,530,350
+Total parameters: 12,602,102
+
+Using HierarchicalLoss (Dice + Focal[20.0] + IoU)
+
+============================================================
+Starting training from epoch 1
+============================================================
+
+
+============================================================
+Epoch 1/1
+============================================================
+
+Epoch 1 Summary:
+  Average Loss: 6.234805
+  Paragraph: 2.194127
+  Line: 1.969479
+  Word: 2.071198
+  Learning Rate: 1.000000e-06
+  Saved: hierarchical_training_test_run/checkpoints/epoch_01.pth
+  ✓ New best model saved! (loss: 6.234805)
+
+============================================================
+✓ Training complete!
+  Best loss: 6.234805
+  Output: hierarchical_training_test_run
+  Best checkpoint: hierarchical_training_test_run/checkpoints/best_model.pth
+============================================================
+
+
+✓ Ready for validation!
+Run: python ../evaluation/evaluate_hisam_metrics.py --run_dir hierarchical_training_test_run
+======================================
+Training finished: Sat Nov 29 16:44:47 IST 2025
+Exit code: 0
+======================================
+✓ Training successful!
+Starting validation...
+Current directory: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/train
+Searching for checkpoints...
+  Checking: hierarchical_training_20251129_141642
+  Checking: hierarchical_training_20251129_142244
+    ✓ Found checkpoint in: hierarchical_training_20251129_142244/
+
+✓ Using run directory: hierarchical_training_20251129_142244
+✓ Checkpoint path: hierarchical_training_20251129_142244/best_model.pth
+-rw-r--r-- 1 px151.visitor hpc_vresearcher 49M Nov 29 14:27 hierarchical_training_20251129_142244/best_model.pth
+
+Running validation...
+Using device: cuda
+
+📂 Loading checkpoint: ../train/hierarchical_training_20251129_142244/best_model.pth
+[MobileHiSAM] Loading MobileSAM encoder...
+[MobileSAMEncoder] Loading checkpoint from /scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/weights/mobile_sam.pt
+[MobileSAMEncoder] ✓ Checkpoint loaded successfully
+[MobileHiSAM] Building adapter...
+[MobileHiSAM] Building ModalAligner...
+[MobileHiSAM] Loading PromptEncoder...
+[MobileHiSAM] Building MaskDecoder...
+✓ Checkpoint loaded successfully
+
+📊 Loading validation dataset...
+[HierText] Loading annotations from: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/gt/validation.jsonl
+[HierText] Images folder: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/validation
+[HierText] Found 1724 total annotations
+[HierText] Filtered to 1724 with hierarchy
+[HierText] Using 200 samples
+Dataset size: 200
+
+Evaluating...
+
+================================================================================
+RESULTS (Hi-SAM Format)
+================================================================================
+Method                    | fgIOU    | PQ       | F-score  | P        | R        | T    
+--------------------------------------------------------------------------------
+Word                      |   74.41 |   28.60 |    35.67 |   27.21 |   74.41 | 0.5
+Text-line                 |   76.77 |   29.57 |    36.24 |   27.69 |   76.77 | 0.5
+Layout Analysis           |   87.18 |   39.38 |    45.78 |   36.60 |   87.18 | 0.5
+================================================================================
+
+NOTE: All values are percentages
+Target Hi-SAM-H metrics (validation set):
+  Word:     fgIOU=74.86, PQ=64.63, F=84.08
+  Text-line: fgIOU=74.86, PQ=69.58, F=90.06
+  Layout:   fgIOU=75.45, PQ=60.42, F=78.16
+================================================================================
+
+✓ Results saved to: ../train/hierarchical_training_20251129_142244/validation_results.json
+
+📈 SUMMARY:
+   Average PQ:    32.52%
+   Average fgIOU: 79.45%
+
+   Target (Hi-SAM-H): PQ~65%, fgIOU~75%
+
+   Gap to Hi-SAM: PQ +32.48%, fgIOU -4.45%
+✓ Validation complete!
+Results should be in: hierarchical_training_20251129_142244/
+-rw-r--r-- 1 px151.visitor hpc_vresearcher 547 Nov 29 16:46 hierarchical_training_20251129_142244/validation_results.json
+======================================
+Job finished: Sat Nov 29 16:46:02 IST 2025
+======================================
+======================================
+Job started: Sat Nov 29 17:04:36 IST 2025
+Node: vsky007
+======================================
+Python: /home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/bin/python
+CUDA visible devices: 
+======================================
+GPU Info:
+Sat Nov 29 17:04:37 2025       
++-----------------------------------------------------------------------------+
+| NVIDIA-SMI 525.105.17   Driver Version: 525.105.17   CUDA Version: 12.0     |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|                               |                      |               MIG M. |
+|===============================+======================+======================|
+|   0  Tesla V100-PCIE...  Off  | 00000000:D8:00.0 Off |                    0 |
+| N/A   28C    P0    36W / 250W |      0MiB / 32768MiB |      1%      Default |
+|                               |                      |                  N/A |
++-------------------------------+----------------------+----------------------+
+                                                                               
++-----------------------------------------------------------------------------+
+| Processes:                                                                  |
+|  GPU   GI   CI        PID   Type   Process name                  GPU Memory |
+|        ID   ID                                                   Usage      |
+|=============================================================================|
+|  No running processes found                                                 |
++-----------------------------------------------------------------------------+
+======================================
+Starting hierarchical training V2...
+Training script: train_hierarchical_v2.py
+======================================
+Job started: Sat Nov 29 17:08:11 IST 2025
+Node: vsky009
+======================================
+Python: /home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/bin/python
+CUDA visible devices: 
+======================================
+GPU Info:
+Sat Nov 29 17:08:12 2025       
++-----------------------------------------------------------------------------+
+| NVIDIA-SMI 525.105.17   Driver Version: 525.105.17   CUDA Version: 12.0     |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|                               |                      |               MIG M. |
+|===============================+======================+======================|
+|   0  Tesla V100-PCIE...  Off  | 00000000:86:00.0 Off |                    0 |
+| N/A   41C    P0    40W / 250W |      0MiB / 32768MiB |      1%      Default |
+|                               |                      |                  N/A |
++-------------------------------+----------------------+----------------------+
+                                                                               
++-----------------------------------------------------------------------------+
+| Processes:                                                                  |
+|  GPU   GI   CI        PID   Type   Process name                  GPU Memory |
+|        ID   ID                                                   Usage      |
+|=============================================================================|
+|  No running processes found                                                 |
++-----------------------------------------------------------------------------+
+======================================
+Starting hierarchical training V2...
+Training script: train_hierarchical_v2.py
+Using device: cuda
+GPU: Tesla V100-PCIE-32GB
+Output directory: hierarchical_training_full_50ep
+Checkpoints: hierarchical_training_full_50ep/checkpoints
+
+Loading dataset...
+[HierText] Loading annotations from: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/gt/train.jsonl
+[HierText] Images folder: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/train
+[HierText] Found 8281 total annotations
+[HierText] Filtered to 8281 with hierarchy
+[HierText] Using 8281 samples
+Dataset size: 8281
+Batches per epoch: 1036
+
+Loading model...
+[MobileHiSAM] Loading MobileSAM encoder...
+[MobileSAMEncoder] Loading checkpoint from /scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/weights/mobile_sam.pt
+[MobileSAMEncoder] ✓ Checkpoint loaded successfully
+[MobileHiSAM] Building adapter...
+[MobileHiSAM] Building ModalAligner...
+[MobileHiSAM] Loading PromptEncoder...
+[MobileHiSAM] Building MaskDecoder...
+[MobileHiSAM] Adding HierarchicalDecoder...
+Trainable parameters: 6,530,350
+Total parameters: 12,602,102
+
+Using HierarchicalLoss (Dice + Focal[20.0] + IoU)
+
+============================================================
+Starting training from epoch 1
+============================================================
+
+
+============================================================
+Epoch 1/50
+============================================================
+
+Epoch 1 Summary:
+  Average Loss: 3.921793
+  Paragraph: 1.608131
+  Line: 1.182395
+  Word: 1.131266
+  Learning Rate: 9.990232e-05
+  ✓ New best model saved! (loss: 3.921793)
+
+============================================================
+Epoch 2/50
+============================================================
+
+Epoch 2 Summary:
+  Average Loss: 3.560418
+  Paragraph: 1.502024
+  Line: 1.049392
+  Word: 1.009001
+  Learning Rate: 9.960968e-05
+  ✓ New best model saved! (loss: 3.560418)
+
+============================================================
+Epoch 3/50
+============================================================
+
+Epoch 3 Summary:
+  Average Loss: 3.450574
+  Paragraph: 1.468498
+  Line: 1.010078
+  Word: 0.971998
+  Learning Rate: 9.912322e-05
+  ✓ New best model saved! (loss: 3.450574)
+
+============================================================
+Epoch 4/50
+============================================================
+
+Epoch 4 Summary:
+  Average Loss: 3.373153
+  Paragraph: 1.434156
+  Line: 0.988023
+  Word: 0.950975
+  Learning Rate: 9.844487e-05
+  ✓ New best model saved! (loss: 3.373153)
+
+============================================================
+Epoch 5/50
+============================================================
+
+Epoch 5 Summary:
+  Average Loss: 3.306593
+  Paragraph: 1.410727
+  Line: 0.964735
+  Word: 0.931131
+  Learning Rate: 9.757730e-05
+  Saved: hierarchical_training_full_50ep/checkpoints/epoch_05.pth
+  ✓ New best model saved! (loss: 3.306593)
+
+============================================================
+Epoch 6/50
+============================================================
+
+Epoch 6 Summary:
+  Average Loss: 3.259587
+  Paragraph: 1.389206
+  Line: 0.951573
+  Word: 0.918808
+  Learning Rate: 9.652394e-05
+  ✓ New best model saved! (loss: 3.259587)
+
+============================================================
+Epoch 7/50
+============================================================
+
+Epoch 7 Summary:
+  Average Loss: 3.205532
+  Paragraph: 1.367534
+  Line: 0.934260
+  Word: 0.903738
+  Learning Rate: 9.528894e-05
+  ✓ New best model saved! (loss: 3.205532)
+
+============================================================
+Epoch 8/50
+============================================================
+
+Epoch 8 Summary:
+  Average Loss: 3.158395
+  Paragraph: 1.342068
+  Line: 0.922522
+  Word: 0.893805
+  Learning Rate: 9.387718e-05
+  ✓ New best model saved! (loss: 3.158395)
+
+============================================================
+Epoch 9/50
+============================================================
+
+Epoch 9 Summary:
+  Average Loss: 3.100555
+  Paragraph: 1.310680
+  Line: 0.909252
+  Word: 0.880624
+  Learning Rate: 9.229423e-05
+  ✓ New best model saved! (loss: 3.100555)
+
+============================================================
+Epoch 10/50
+============================================================

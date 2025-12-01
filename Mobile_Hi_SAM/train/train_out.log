@@ -1,0 +1,96 @@
+Job started on: vsky009
+Time: Sat Nov 29 02:03:43 IST 2025
+================================
+Python: /home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/bin/python
+GPU Info:
+name, memory.total [MiB]
+Tesla V100-PCIE-32GB, 32768 MiB
+Using device: cuda
+GPU: Tesla V100-PCIE-32GB
+GPU Memory: 34.08 GB
+
+Loading model...
+[MobileHiSAM] Loading MobileSAM encoder...
+[MobileSAMEncoder] Loading checkpoint from ../../MobileSAM/weights/mobile_sam.pt
+[MobileSAMEncoder] ✓ Checkpoint loaded successfully
+[MobileHiSAM] Building adapter...
+[MobileHiSAM] Building ModalAligner...
+[MobileHiSAM] Loading PromptEncoder...
+[MobileHiSAM] Building MaskDecoder...
+Total parameters: 11,560,685
+Trainable parameters: 5,488,933 (47.5%)
+
+Loading dataset from: ../sample_images
+Dataset size: 4 images
+
+Training for 2 epochs...
+
+============================================================
+Epoch 1/2
+============================================================
+
+Epoch 1 Summary:
+  Average Loss: 0.024379
+  Checkpoint saved: mobile_hisam_checkpoint_epoch1.pth
+
+============================================================
+Epoch 2/2
+============================================================
+
+Epoch 2 Summary:
+  Average Loss: 0.009635
+  Checkpoint saved: mobile_hisam_checkpoint_epoch2.pth
+
+============================================================
+✓ Training complete!
+============================================================
+================================
+Job finished at: Sat Nov 29 02:03:57 IST 2025
+Job started on: vsky001
+Time: Sat Nov 29 02:18:16 IST 2025
+================================
+Python: /home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/bin/python
+GPU Info:
+name, memory.total [MiB]
+Tesla V100-PCIE-32GB, 32768 MiB
+Using device: cuda
+GPU: Tesla V100-PCIE-32GB
+GPU Memory: 34.08 GB
+
+Loading model...
+[MobileHiSAM] Loading MobileSAM encoder...
+[MobileSAMEncoder] Loading checkpoint from ../../MobileSAM/weights/mobile_sam.pt
+[MobileSAMEncoder] ✓ Checkpoint loaded successfully
+[MobileHiSAM] Building adapter...
+[MobileHiSAM] Building ModalAligner...
+[MobileHiSAM] Loading PromptEncoder...
+[MobileHiSAM] Building MaskDecoder...
+Total parameters: 11,560,685
+Trainable parameters: 5,488,933 (47.5%)
+
+Loading dataset from: ../sample_images
+Dataset size: 4 images
+
+Training for 2 epochs...
+
+============================================================
+Epoch 1/2
+============================================================
+
+Epoch 1 Summary:
+  Average Loss: 0.033957
+  Checkpoint saved: mobile_hisam_checkpoint_epoch1.pth
+
+============================================================
+Epoch 2/2
+============================================================
+
+Epoch 2 Summary:
+  Average Loss: 0.014374
+  Checkpoint saved: mobile_hisam_checkpoint_epoch2.pth
+
+============================================================
+✓ Training complete!
+============================================================
+================================
+Job finished at: Sat Nov 29 02:19:00 IST 2025

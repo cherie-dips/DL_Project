@@ -1,0 +1,6 @@
+{
+  "best_checkpoint": "hierarchical_training_full_50ep/checkpoints/best_model.pth",
+  "best_loss": 2.0945371975079468,
+  "total_epochs": 50,
+  "completed_at": "2025-11-30T19:33:27.646038"
+}

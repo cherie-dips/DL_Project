@@ -1,0 +1,35 @@
+#!/bin/bash
+#PBS -N hisam_train
+#PBS -P hpc.plaksha.px151 
+#PBS -q high
+#PBS -l select=1:ncpus=4:ngpus=1:centos=skylake
+#PBS -l walltime=02:00:00
+#PBS -o train_out.log
+#PBS -e train_err.log
+
+echo "Job started on: $(hostname)"
+echo "Time: $(date)"
+echo "================================"
+
+# Activate conda
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate mobile_hisam
+
+echo "Python: $(which python)"
+echo "GPU Info:"
+nvidia-smi --query-gpu=name,memory.total --format=csv
+
+# Go to train directory
+cd $HOME/scratch/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/train
+
+# Run training
+python train_mobile_hisam_fixed.py \
+    --images ../sample_images \
+    --epochs 2 \
+    --batch_size 1 \
+    --lr 1e-4 \
+    --checkpoint_encoder ../../MobileSAM/weights/mobile_sam.pt \
+    --save mobile_hisam_checkpoint.pth
+
+echo "================================"
+echo "Job finished at: $(date)"

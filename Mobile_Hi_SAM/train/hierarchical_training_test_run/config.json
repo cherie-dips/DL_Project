@@ -1,0 +1,19 @@
+{
+  "root": "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext",
+  "epochs": 1,
+  "batch_size": 4,
+  "lr": 0.0001,
+  "max_samples": 100,
+  "checkpoint_encoder": "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/weights/mobile_sam.pt",
+  "resume": null,
+  "save_freq": 1,
+  "loss_type": "full",
+  "weight_para": 1.0,
+  "weight_line": 1.0,
+  "weight_word": 1.0,
+  "weight_focal": 20.0,
+  "use_amp": true,
+  "run_name": "test_run",
+  "output_dir": "hierarchical_training_test_run",
+  "checkpoint_dir": "hierarchical_training_test_run/checkpoints"
+}

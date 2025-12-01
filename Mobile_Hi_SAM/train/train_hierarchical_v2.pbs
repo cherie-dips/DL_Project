@@ -1,0 +1,152 @@
+#!/bin/bash
+#PBS -N mobile_hisam_v2
+#PBS -P hpc.plaksha.px151
+#PBS -q high
+#PBS -l select=1:ncpus=4:ngpus=1:centos=skylake
+#PBS -l walltime=15:00:00
+#PBS -o train_v2_out.log
+#PBS -e train_v2_err.log
+
+echo "======================================"
+echo "Job started: $(date)"
+echo "Node: $(hostname)"
+echo "======================================"
+
+# Activate conda properly
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate mobile_hisam
+
+echo "Python: $(which python)"
+echo "CUDA visible devices: $CUDA_VISIBLE_DEVICES"
+
+echo "======================================"
+echo "GPU Info:"
+nvidia-smi
+echo "======================================"
+
+PROJECT_ROOT="/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM"
+export PYTHONPATH="$PROJECT_ROOT:$PYTHONPATH"
+
+cd $PROJECT_ROOT/Mobile_Hi_SAM/train
+
+HIERTEXT_ROOT="/scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext"
+MOBILESAM_CKPT="$PROJECT_ROOT/MobileSAM/weights/mobile_sam.pt"
+
+echo "Starting hierarchical training V2..."
+echo "Training script: train_hierarchical_v2.py"
+
+# STAGE 1: Test run (1 epoch, 100 samples)
+# Uncomment this for initial testing
+#python train_hierarchical_v2.py \
+#   --root $HIERTEXT_ROOT \
+#    --checkpoint_encoder $MOBILESAM_CKPT \
+#    --epochs 1 \
+#    --batch_size 4 \
+#    --lr 1e-4 \
+#    --max_samples 100 \
+#    --loss_type full \
+#    --weight_focal 20.0 \
+#   --save_freq 1 \
+#    --use_amp \
+#    --run_name "test_run"
+
+# STAGE 2: Full training (50 epochs, all data)
+# Uncomment this after test run succeeds
+python train_hierarchical_v2.py \
+    --root $HIERTEXT_ROOT \
+    --checkpoint_encoder $MOBILESAM_CKPT \
+    --epochs 50 \
+    --batch_size 8 \
+    --lr 1e-4 \
+    --loss_type full \
+    --weight_focal 20.0 \
+    --save_freq 5 \
+    --use_amp \
+    --run_name "full_50ep"
+
+TRAIN_EXIT_CODE=$?
+
+echo "======================================"
+echo "Training finished: $(date)"
+echo "Exit code: $TRAIN_EXIT_CODE"
+echo "======================================"
+
+if [ $TRAIN_EXIT_CODE -eq 0 ]; then
+    echo "✓ Training successful!"
+    echo "Starting validation..."
+
+    # Make sure we're in the right directory
+    cd $PROJECT_ROOT/Mobile_Hi_SAM/train
+    echo "Current directory: $(pwd)"
+    
+    # FIXED: Search for checkpoint files properly
+    LATEST_RUN=""
+    
+    # Method 1: Look for best_model.pth in subdirectories
+    echo "Searching for checkpoints..."
+    for dir in hierarchical_training_*; do
+        if [ -d "$dir" ]; then
+            echo "  Checking: $dir"
+            # Check both with and without checkpoints subdirectory
+            if [ -f "$dir/checkpoints/best_model.pth" ]; then
+                LATEST_RUN="$dir"
+                echo "    ✓ Found checkpoint in: $dir/checkpoints/"
+                break
+            elif [ -f "$dir/best_model.pth" ]; then
+                LATEST_RUN="$dir"
+                echo "    ✓ Found checkpoint in: $dir/"
+                break
+            fi
+        fi
+    done
+
+    if [ -n "$LATEST_RUN" ]; then
+        echo ""
+        echo "✓ Using run directory: $LATEST_RUN"
+        
+        # Determine checkpoint path
+        if [ -f "$LATEST_RUN/checkpoints/best_model.pth" ]; then
+            CHECKPOINT_PATH="$LATEST_RUN/checkpoints/best_model.pth"
+        else
+            CHECKPOINT_PATH="$LATEST_RUN/best_model.pth"
+        fi
+        
+        echo "✓ Checkpoint path: $CHECKPOINT_PATH"
+        ls -lh "$CHECKPOINT_PATH"
+        
+        # Run validation
+        echo ""
+        echo "Running validation..."
+        cd $PROJECT_ROOT/Mobile_Hi_SAM/evaluation
+
+        python evaluate_hisam_metrics.py \
+            --run_dir "../train/$LATEST_RUN" \
+            --root $HIERTEXT_ROOT \
+            --split validation \
+            --batch_size 4 \
+            --max_samples 200
+
+        VAL_EXIT_CODE=$?
+        
+        if [ $VAL_EXIT_CODE -eq 0 ]; then
+            echo "✓ Validation complete!"
+            cd $PROJECT_ROOT/Mobile_Hi_SAM/train
+            echo "Results should be in: $LATEST_RUN/"
+            ls -lh "$LATEST_RUN/"*results* 2>/dev/null || echo "No results files found yet"
+        else
+            echo "✗ Validation failed with exit code: $VAL_EXIT_CODE"
+        fi
+    else
+        echo "✗ Could not find any directory with checkpoints"
+        echo ""
+        echo "Debug info:"
+        echo "Looking for files matching: */checkpoints/best_model.pth or */best_model.pth"
+        find . -maxdepth 2 -name "best_model.pth" 2>/dev/null
+    fi
+else
+    echo "✗ Training failed"
+fi
+
+echo "======================================"
+echo "Job finished: $(date)"
+echo "======================================"

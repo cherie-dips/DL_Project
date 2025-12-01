@@ -1,0 +1,14 @@
+{
+  "root": "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext",
+  "epochs": 10,
+  "batch_size": 4,
+  "lr": 0.0001,
+  "max_samples": 500,
+  "checkpoint_encoder": "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/weights/mobile_sam.pt",
+  "resume": null,
+  "save_freq": 2,
+  "loss_type": "simplified",
+  "weight_para": 1.0,
+  "weight_line": 1.0,
+  "weight_word": 1.0
+}

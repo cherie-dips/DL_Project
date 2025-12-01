@@ -1,0 +1,233 @@
+#!/bin/bash
+#PBS -N mobile_hisam_resume
+#PBS -P hpc.plaksha.px151
+#PBS -q standard
+#PBS -l select=1:ncpus=4:ngpus=1:centos=skylake
+#PBS -l walltime=15:00:00
+#PBS -o train_resume_out.log
+#PBS -e train_resume_err.log
+
+echo "======================================"
+echo "Job started: $(date)"
+echo "Node: $(hostname)"
+echo "======================================"
+
+# Activate conda properly
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate mobile_hisam
+
+echo "Python: $(which python)"
+echo "CUDA visible devices: $CUDA_VISIBLE_DEVICES"
+
+echo "======================================"
+echo "GPU Info:"
+nvidia-smi
+echo "======================================"
+
+PROJECT_ROOT="/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM"
+export PYTHONPATH="$PROJECT_ROOT:$PYTHONPATH"
+
+cd $PROJECT_ROOT/Mobile_Hi_SAM/train
+
+HIERTEXT_ROOT="/scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext"
+MOBILESAM_CKPT="$PROJECT_ROOT/MobileSAM/weights/mobile_sam.pt"
+
+# IMPORTANT: Use the EXACT same run_name as before
+PREV_RUN_NAME="full_50ep"
+PREV_RUN_DIR="hierarchical_training_${PREV_RUN_NAME}"
+
+echo "======================================"
+echo "Resuming training from: $PREV_RUN_DIR"
+echo "======================================"
+
+# Find the last checkpoint
+if [ ! -d "$PREV_RUN_DIR/checkpoints" ]; then
+    echo "✗ ERROR: Directory not found: $PREV_RUN_DIR/checkpoints"
+    echo "Available directories:"
+    ls -ld hierarchical_training_*
+    exit 1
+fi
+
+# List all epoch checkpoints
+echo "Available checkpoints:"
+ls -lh $PREV_RUN_DIR/checkpoints/epoch_*.pth 2>/dev/null
+
+# Find the latest epoch checkpoint (highest epoch number)
+LAST_CHECKPOINT=$(ls -v $PREV_RUN_DIR/checkpoints/epoch_*.pth 2>/dev/null | tail -1)
+
+if [ -z "$LAST_CHECKPOINT" ]; then
+    echo "✗ ERROR: No epoch checkpoint found in $PREV_RUN_DIR/checkpoints/"
+    echo "Contents:"
+    ls -lh $PREV_RUN_DIR/checkpoints/
+    exit 1
+fi
+
+echo ""
+echo "✓ Resuming from: $LAST_CHECKPOINT"
+echo ""
+
+# Resume training - this will continue from last epoch and save to SAME directory
+python train_hierarchical_v2.py \
+    --root $HIERTEXT_ROOT \
+    --checkpoint_encoder $MOBILESAM_CKPT \
+    --resume "$LAST_CHECKPOINT" \
+    --epochs 50 \
+    --batch_size 8 \
+    --lr 1e-4 \
+    --loss_type full \
+    --weight_focal 20.0 \
+    --save_freq 5 \
+    --use_amp \
+    --run_name "$PREV_RUN_NAME"
+
+TRAIN_EXIT_CODE=$?
+
+echo "======================================"
+echo "Training finished: $(date)"
+echo "Exit code: $TRAIN_EXIT_CODE"
+echo "======================================"
+
+if [ $TRAIN_EXIT_CODE -eq 0 ]; then
+    echo "✓ Training successful!"
+    echo ""
+    
+    # Make sure we're in the right directory
+    cd $PROJECT_ROOT/Mobile_Hi_SAM/train
+    echo "Current directory: $(pwd)"
+    
+    # The run directory
+    LATEST_RUN="$PREV_RUN_DIR"
+    
+    if [ -d "$LATEST_RUN" ]; then
+        echo "✓ Using run directory: $LATEST_RUN"
+        
+        # Check checkpoint exists
+        if [ -f "$LATEST_RUN/checkpoints/best_model.pth" ]; then
+            CHECKPOINT_PATH="$LATEST_RUN/checkpoints/best_model.pth"
+        elif [ -f "$LATEST_RUN/best_model.pth" ]; then
+            CHECKPOINT_PATH="$LATEST_RUN/best_model.pth"
+        else
+            echo "✗ No checkpoint found!"
+            exit 1
+        fi
+        
+        echo "✓ Checkpoint path: $CHECKPOINT_PATH"
+        ls -lh "$CHECKPOINT_PATH"
+        
+        # ========================================
+        # VALIDATION AT EVERY 10 EPOCHS
+        # ========================================
+        echo ""
+        echo "======================================"
+        echo "Running validation on checkpoints..."
+        echo "======================================"
+        
+        cd $PROJECT_ROOT/Mobile_Hi_SAM/evaluation
+        
+        # Validate epoch 10, 20, 30, 40, 50 (whichever exist)
+        for EPOCH in 10 20 30 40 50; do
+            EPOCH_CKPT="../train/$LATEST_RUN/checkpoints/epoch_${EPOCH}.pth"
+            
+            if [ -f "$EPOCH_CKPT" ]; then
+                echo ""
+                echo "------------------------------------"
+                echo "Validating Epoch $EPOCH"
+                echo "Checkpoint: $EPOCH_CKPT"
+                echo "------------------------------------"
+                
+                # Create temporary directory for this epoch's validation
+                TEMP_VAL_DIR="../train/${LATEST_RUN}_epoch${EPOCH}_val"
+                mkdir -p "$TEMP_VAL_DIR/checkpoints"
+                
+                # Copy checkpoint to temp location
+                cp "$EPOCH_CKPT" "$TEMP_VAL_DIR/checkpoints/best_model.pth"
+                
+                # Copy config if exists
+                if [ -f "../train/$LATEST_RUN/config.json" ]; then
+                    cp "../train/$LATEST_RUN/config.json" "$TEMP_VAL_DIR/"
+                fi
+                
+                # Run validation
+                python evaluate_hisam_metrics.py \
+                    --run_dir "$TEMP_VAL_DIR" \
+                    --root $HIERTEXT_ROOT \
+                    --split val \
+                    --batch_size 4
+                
+                VAL_EXIT_CODE=$?
+                
+                if [ $VAL_EXIT_CODE -eq 0 ]; then
+                    echo "✓ Validation complete for epoch $EPOCH"
+                    
+                    # Copy results back to main directory with epoch label
+                    if [ -f "$TEMP_VAL_DIR/validation_results.json" ]; then
+                        cp "$TEMP_VAL_DIR/validation_results.json" \
+                           "../train/$LATEST_RUN/validation_results_epoch${EPOCH}.json"
+                        
+                        echo "Results saved to: $LATEST_RUN/validation_results_epoch${EPOCH}.json"
+                        
+                        # Print quick summary
+                        echo "Quick summary:"
+                        cat "$TEMP_VAL_DIR/validation_results.json" | grep -A3 "Word"
+                    fi
+                    
+                    # Clean up temp directory
+                    rm -rf "$TEMP_VAL_DIR"
+                else
+                    echo "✗ Validation failed for epoch $EPOCH"
+                fi
+            else
+                echo "Skipping epoch $EPOCH (checkpoint not found)"
+            fi
+        done
+        
+        # ========================================
+        # FINAL VALIDATION ON BEST MODEL
+        # ========================================
+        echo ""
+        echo "======================================"
+        echo "Running FINAL validation on best model..."
+        echo "======================================"
+        
+        python evaluate_hisam_metrics.py \
+            --run_dir "../train/$LATEST_RUN" \
+            --root $HIERTEXT_ROOT \
+            --split val \
+            --batch_size 4
+        
+        VAL_EXIT_CODE=$?
+        
+        if [ $VAL_EXIT_CODE -eq 0 ]; then
+            echo ""
+            echo "======================================"
+            echo "✓ ALL VALIDATIONS COMPLETE!"
+            echo "======================================"
+            
+            cd $PROJECT_ROOT/Mobile_Hi_SAM/train
+            echo ""
+            echo "Results summary:"
+            echo "Main results: $LATEST_RUN/validation_results.json"
+            
+            # List all validation results
+            ls -lh "$LATEST_RUN/"validation_results*.json 2>/dev/null
+            
+            echo ""
+            echo "======================================"
+            echo "FINAL RESULTS:"
+            echo "======================================"
+            cat "$LATEST_RUN/validation_results.json"
+            
+        else
+            echo "✗ Final validation failed with exit code: $VAL_EXIT_CODE"
+        fi
+    else
+        echo "✗ Could not find directory: $LATEST_RUN"
+    fi
+else
+    echo "✗ Training failed"
+fi
+
+echo ""
+echo "======================================"
+echo "Job finished: $(date)"
+echo "======================================"

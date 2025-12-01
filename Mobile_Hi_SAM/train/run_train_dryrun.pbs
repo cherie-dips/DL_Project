@@ -1,0 +1,35 @@
+#!/bin/bash
+#PBS -N hisam_train_dryrun
+#PBS -P hpc.plaksha.px151
+#PBS -q high
+#PBS -l select=1:ncpus=4:ngpus=1:centos=skylake
+#PBS -l walltime=00:45:00
+#PBS -o dryrun_out.log
+#PBS -e dryrun_err.log
+
+echo "Dry-run job started on $(hostname) at $(date)"
+
+# activate conda
+source ~/.bashrc
+conda activate mobile_hisam
+
+echo "Using python: $(which python)"
+nvidia-smi
+
+# go to train folder
+cd $HOME/scratch/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/train
+
+# directory for checkpoints
+mkdir -p $HOME/scratch/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/output_ckpts_dryrun
+export OUT=$HOME/scratch/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/output_ckpts_dryrun
+
+# RUN TRAINING FOR JUST 1 EPOCH
+python train_mobile_hisam.py \
+  --data_path $HOME/scratch/DL/DL_Project/hiertext \
+  --epochs 1 \
+  --batch 2 \
+  --lr 1e-4 \
+  --output_dir $OUT
+
+echo "Dry-run training finished at $(date)"
+

@@ -1,0 +1,171 @@
+======================================
+Job started: Sun Nov 30 09:04:59 IST 2025
+Node: vsky007
+======================================
+Python: /home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/bin/python
+CUDA visible devices: 
+======================================
+GPU Info:
+Sun Nov 30 09:05:00 2025       
++-----------------------------------------------------------------------------+
+| NVIDIA-SMI 525.105.17   Driver Version: 525.105.17   CUDA Version: 12.0     |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|                               |                      |               MIG M. |
+|===============================+======================+======================|
+|   0  Tesla V100-PCIE...  Off  | 00000000:86:00.0 Off |                    0 |
+| N/A   29C    P0    36W / 250W |      0MiB / 32768MiB |      1%      Default |
+|                               |                      |                  N/A |
++-------------------------------+----------------------+----------------------+
+                                                                               
++-----------------------------------------------------------------------------+
+| Processes:                                                                  |
+|  GPU   GI   CI        PID   Type   Process name                  GPU Memory |
+|        ID   ID                                                   Usage      |
+|=============================================================================|
+|  No running processes found                                                 |
++-----------------------------------------------------------------------------+
+======================================
+======================================
+Resuming training from: hierarchical_training_full_50ep
+======================================
+Available checkpoints:
+-rw-r--r-- 1 px151.visitor hpc_vresearcher 83M Nov 29 19:38 hierarchical_training_full_50ep/checkpoints/epoch_05.pth
+-rw-r--r-- 1 px151.visitor hpc_vresearcher 83M Nov 29 22:16 hierarchical_training_full_50ep/checkpoints/epoch_10.pth
+-rw-r--r-- 1 px151.visitor hpc_vresearcher 83M Nov 30 00:43 hierarchical_training_full_50ep/checkpoints/epoch_15.pth
+-rw-r--r-- 1 px151.visitor hpc_vresearcher 83M Nov 30 03:04 hierarchical_training_full_50ep/checkpoints/epoch_20.pth
+-rw-r--r-- 1 px151.visitor hpc_vresearcher 83M Nov 30 05:25 hierarchical_training_full_50ep/checkpoints/epoch_25.pth
+-rw-r--r-- 1 px151.visitor hpc_vresearcher 83M Nov 30 07:47 hierarchical_training_full_50ep/checkpoints/epoch_30.pth
+
+✓ Resuming from: hierarchical_training_full_50ep/checkpoints/epoch_30.pth
+
+======================================
+Job started: Sun Nov 30 09:06:57 IST 2025
+Node: vsky007
+======================================
+Python: /home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/bin/python
+CUDA visible devices: 
+======================================
+GPU Info:
+Sun Nov 30 09:06:59 2025       
++-----------------------------------------------------------------------------+
+| NVIDIA-SMI 525.105.17   Driver Version: 525.105.17   CUDA Version: 12.0     |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|                               |                      |               MIG M. |
+|===============================+======================+======================|
+|   0  Tesla V100-PCIE...  Off  | 00000000:86:00.0 Off |                    0 |
+| N/A   29C    P0    36W / 250W |      0MiB / 32768MiB |      1%      Default |
+|                               |                      |                  N/A |
++-------------------------------+----------------------+----------------------+
+                                                                               
++-----------------------------------------------------------------------------+
+| Processes:                                                                  |
+|  GPU   GI   CI        PID   Type   Process name                  GPU Memory |
+|        ID   ID                                                   Usage      |
+|=============================================================================|
+|  No running processes found                                                 |
++-----------------------------------------------------------------------------+
+======================================
+======================================
+Resuming training from: hierarchical_training_full_50ep
+======================================
+Available checkpoints:
+-rw-r--r-- 1 px151.visitor hpc_vresearcher 83M Nov 29 19:38 hierarchical_training_full_50ep/checkpoints/epoch_05.pth
+-rw-r--r-- 1 px151.visitor hpc_vresearcher 83M Nov 29 22:16 hierarchical_training_full_50ep/checkpoints/epoch_10.pth
+-rw-r--r-- 1 px151.visitor hpc_vresearcher 83M Nov 30 00:43 hierarchical_training_full_50ep/checkpoints/epoch_15.pth
+-rw-r--r-- 1 px151.visitor hpc_vresearcher 83M Nov 30 03:04 hierarchical_training_full_50ep/checkpoints/epoch_20.pth
+-rw-r--r-- 1 px151.visitor hpc_vresearcher 83M Nov 30 05:25 hierarchical_training_full_50ep/checkpoints/epoch_25.pth
+-rw-r--r-- 1 px151.visitor hpc_vresearcher 83M Nov 30 07:47 hierarchical_training_full_50ep/checkpoints/epoch_30.pth
+
+✓ Resuming from: hierarchical_training_full_50ep/checkpoints/epoch_30.pth
+
+Using device: cuda
+GPU: Tesla V100-PCIE-32GB
+Output directory: hierarchical_training_full_50ep
+Checkpoints: hierarchical_training_full_50ep/checkpoints
+
+Loading dataset...
+[HierText] Loading annotations from: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/gt/train.jsonl
+[HierText] Images folder: /scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext/train
+[HierText] Found 8281 total annotations
+[HierText] Filtered to 8281 with hierarchy
+[HierText] Using 8281 samples
+Dataset size: 8281
+Batches per epoch: 1036
+
+Loading model...
+[MobileHiSAM] Loading MobileSAM encoder...
+[MobileSAMEncoder] Loading checkpoint from /scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/weights/mobile_sam.pt
+[MobileSAMEncoder] ✓ Checkpoint loaded successfully
+[MobileHiSAM] Building adapter...
+[MobileHiSAM] Building ModalAligner...
+[MobileHiSAM] Loading PromptEncoder...
+[MobileHiSAM] Building MaskDecoder...
+[MobileHiSAM] Adding HierarchicalDecoder...
+Trainable parameters: 6,530,350
+Total parameters: 12,602,102
+
+Using HierarchicalLoss (Dice + Focal[20.0] + IoU)
+
+Resuming from: hierarchical_training_full_50ep/checkpoints/epoch_30.pth
+Resuming from epoch 31, best loss: 2.305128
+
+============================================================
+Starting training from epoch 31
+============================================================
+
+
+============================================================
+Epoch 31/50
+============================================================
+
+Epoch 31 Summary:
+  Average Loss: 2.280434
+  Paragraph: 0.847745
+  Line: 0.716409
+  Word: 0.716280
+  Learning Rate: 3.227783e-05
+  ✓ New best model saved! (loss: 2.280434)
+
+============================================================
+Epoch 32/50
+============================================================
+
+Epoch 32 Summary:
+  Average Loss: 2.262684
+  Paragraph: 0.840155
+  Line: 0.710739
+  Word: 0.711789
+  Learning Rate: 2.942393e-05
+  ✓ New best model saved! (loss: 2.262684)
+
+============================================================
+Epoch 33/50
+============================================================
+
+Epoch 33 Summary:
+  Average Loss: 2.244643
+  Paragraph: 0.829531
+  Line: 0.707023
+  Word: 0.708089
+  Learning Rate: 2.665319e-05
+  ✓ New best model saved! (loss: 2.244643)
+
+============================================================
+Epoch 34/50
+============================================================
+
+Epoch 34 Summary:
+  Average Loss: 2.222906
+  Paragraph: 0.817765
+  Line: 0.701189
+  Word: 0.703952
+  Learning Rate: 2.397657e-05
+  ✓ New best model saved! (loss: 2.222906)
+
+============================================================
+Epoch 35/50
+============================================================

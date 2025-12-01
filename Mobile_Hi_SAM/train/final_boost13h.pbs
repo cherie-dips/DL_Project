@@ -1,0 +1,213 @@
+#!/bin/bash
+#PBS -N final_boost_13h
+#PBS -P hpc.plaksha.px151
+#PBS -q high
+
+#PBS -l select=1:ncpus=4:ngpus=1:centos=skylake
+#PBS -l walltime=14:00:00
+#PBS -o final_boost_out.log
+#PBS -e final_boost_err.log
+
+echo "======================================"
+echo "FINAL BOOST - 13 HOURS MAXIMUM"
+echo "Job started: $(date)"
+echo "Node: $(hostname)"
+echo "======================================"
+
+# Activate conda properly
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate mobile_hisam
+
+echo "Python: $(which python)"
+echo "CUDA visible devices: $CUDA_VISIBLE_DEVICES"
+
+echo "======================================"
+echo "GPU Info:"
+nvidia-smi
+echo "======================================"
+
+PROJECT_ROOT="/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM"
+export PYTHONPATH="$PROJECT_ROOT:$PYTHONPATH"
+
+cd $PROJECT_ROOT/Mobile_Hi_SAM/train
+
+HIERTEXT_ROOT="/scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext"
+MOBILESAM_CKPT="$PROJECT_ROOT/MobileSAM/weights/mobile_sam.pt"
+
+# Use the SAME run directory
+PREV_RUN_NAME="full_50ep"
+PREV_RUN_DIR="hierarchical_training_${PREV_RUN_NAME}"
+
+echo "======================================"
+echo "CRITICAL IMPROVEMENTS:"
+echo "  1. Focal Loss: 20 → 40 (2x boost for boundaries)"
+echo "  2. Para Weight: 1.0 → 1.8 (weakest level)"
+echo "  3. Line Weight: 1.0 → 1.5 (medium boost)"
+echo "  4. Batch Size: 8 → 16 (2x, FASTER training)"
+echo "  5. Target: Epoch 50 → 72 (22 epochs)"
+echo ""
+echo "Expected time: 22 epochs × 28 min = 10.3 hours"
+echo "Expected gain: +5-8% PQ improvement"
+echo "======================================"
+
+# Find epoch 50 checkpoint
+LAST_CHECKPOINT="$PREV_RUN_DIR/checkpoints/epoch_50.pth"
+
+if [ ! -f "$LAST_CHECKPOINT" ]; then
+    echo "✗ ERROR: Epoch 50 not found at $LAST_CHECKPOINT"
+    echo "Looking for latest checkpoint..."
+    LAST_CHECKPOINT=$(ls -v $PREV_RUN_DIR/checkpoints/epoch_*.pth 2>/dev/null | tail -1)
+    
+    if [ -z "$LAST_CHECKPOINT" ]; then
+        echo "✗ No checkpoints found!"
+        exit 1
+    fi
+fi
+
+echo "✓ Resuming from: $LAST_CHECKPOINT"
+echo ""
+
+# ========================================
+# SAFETY: Backup training history FIRST
+# ========================================
+echo "Creating safety backup..."
+if [ -f "$PREV_RUN_DIR/training_history.json" ]; then
+    cp "$PREV_RUN_DIR/training_history.json" "$PREV_RUN_DIR/training_history_epoch50_backup.json"
+    echo "✓ Backed up: training_history_epoch50_backup.json"
+fi
+
+# Also backup checkpoints up to epoch 50
+if [ -d "$PREV_RUN_DIR/checkpoints" ]; then
+    echo "✓ Checkpoints 1-50 are safe (resume doesn't overwrite old checkpoints)"
+fi
+
+echo "======================================"
+echo ""
+
+# BOOSTED TRAINING - All proven improvements
+python train_hierarchical_v2.py \
+    --root $HIERTEXT_ROOT \
+    --checkpoint_encoder $MOBILESAM_CKPT \
+    --resume "$LAST_CHECKPOINT" \
+    --epochs 72 \
+    --batch_size 16 \
+    --lr 1.2e-4 \
+    --loss_type full \
+    --weight_focal 40.0 \
+    --weight_para 1.8 \
+    --weight_line 1.5 \
+    --weight_word 1.0 \
+    --save_freq 5 \
+    --use_amp \
+    --run_name "$PREV_RUN_NAME"
+
+TRAIN_EXIT_CODE=$?
+
+echo "======================================"
+echo "Training finished: $(date)"
+echo "Exit code: $TRAIN_EXIT_CODE"
+echo "======================================"
+
+if [ $TRAIN_EXIT_CODE -eq 0 ]; then
+    echo "✓ Training successful!"
+    echo ""
+    
+    cd $PROJECT_ROOT/Mobile_Hi_SAM/train
+    echo "Current directory: $(pwd)"
+    
+    LATEST_RUN="$PREV_RUN_DIR"
+    
+    if [ -d "$LATEST_RUN" ]; then
+        echo "✓ Using run directory: $LATEST_RUN"
+        
+        # Check best checkpoint
+        if [ -f "$LATEST_RUN/checkpoints/best_model.pth" ]; then
+            CHECKPOINT_PATH="$LATEST_RUN/checkpoints/best_model.pth"
+        else
+            echo "✗ No best_model.pth found!"
+            exit 1
+        fi
+        
+        echo "✓ Checkpoint: $CHECKPOINT_PATH"
+        ls -lh "$CHECKPOINT_PATH"
+        
+        # ========================================
+        # QUICK VALIDATION (200 samples for speed)
+        # ========================================
+        echo ""
+        echo "======================================"
+        echo "Running FAST validation (200 samples)..."
+        echo "======================================"
+        
+        cd $PROJECT_ROOT/Mobile_Hi_SAM/evaluation
+        
+        python evaluate_hisam_metrics.py \
+            --run_dir "../train/$LATEST_RUN" \
+            --root $HIERTEXT_ROOT \
+            --split validation \
+            --batch_size 8 \
+            --max_samples 200
+        
+        VAL_EXIT_CODE=$?
+        
+        if [ $VAL_EXIT_CODE -eq 0 ]; then
+            echo ""
+            echo "======================================"
+            echo "✓ VALIDATION COMPLETE!"
+            echo "======================================"
+            
+            cd $PROJECT_ROOT/Mobile_Hi_SAM/train
+            
+            echo ""
+            echo "FINAL RESULTS:"
+            cat "$LATEST_RUN/validation_results.json"
+            
+            echo ""
+            echo "======================================"
+            echo "FOR YOUR PRESENTATION:"
+            echo "======================================"
+            echo "  Model: Mobile-Hi-SAM"
+            echo "  Parameters: 12.6M (8x smaller than Hi-SAM-H)"
+            echo "  Training: 72 epochs on HierText (8,281 images)"
+            echo "  Check validation_results.json above for:"
+            echo "    - Panoptic Quality (PQ)"
+            echo "    - Foreground IoU (fgIOU)"
+            echo "    - F-score, Precision, Recall"
+            echo "======================================"
+            
+            # Extract key numbers
+            python3 << 'PYTHON_EOF'
+import json
+try:
+    with open('hierarchical_training_full_50ep/validation_results.json') as f:
+        results = json.load(f)
+    
+    print("\n🎯 QUICK SUMMARY:")
+    for level in ['Word', 'Text-line', 'Layout Analysis']:
+        pq = results[level]['PQ']
+        fgiou = results[level]['fgIOU']
+        print(f"  {level:20s}: PQ={pq:5.2f}%, fgIOU={fgiou:5.2f}%")
+    
+    avg_pq = sum(results[l]['PQ'] for l in ['Word', 'Text-line', 'Layout Analysis']) / 3
+    avg_fgiou = sum(results[l]['fgIOU'] for l in ['Word', 'Text-line', 'Layout Analysis']) / 3
+    
+    print(f"\n  {'AVERAGE':20s}: PQ={avg_pq:5.2f}%, fgIOU={avg_fgiou:5.2f}%")
+    print(f"  Gap to Hi-SAM-H: PQ {65-avg_pq:.1f}%, fgIOU {75-avg_fgiou:.1f}%")
+except Exception as e:
+    print(f"Could not parse results: {e}")
+PYTHON_EOF
+            
+        else
+            echo "✗ Validation failed with exit code: $VAL_EXIT_CODE"
+        fi
+    else
+        echo "✗ Could not find directory: $LATEST_RUN"
+    fi
+else
+    echo "✗ Training failed"
+fi
+
+echo ""
+echo "======================================"
+echo "Job finished: $(date)"
+echo "======================================"

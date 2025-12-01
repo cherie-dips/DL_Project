@@ -1,0 +1,84 @@
+Traceback (most recent call last):
+  File "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/train/train_mobile_hisam.py", line 22, in <module>
+    from Mobile_Hi_SAM.models.mobile_hisam_model import MobileHiSAM
+ModuleNotFoundError: No module named 'Mobile_Hi_SAM'
+/home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/lib/python3.9/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+/home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/lib/python3.9/site-packages/timm/models/registry.py:4: FutureWarning: Importing from timm.models.registry is deprecated, please import via timm.models
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.models", FutureWarning)
+/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/mobile_sam/modeling/tiny_vit_sam.py:656: UserWarning: Overwriting tiny_vit_5m_224 in registry with mobile_sam.modeling.tiny_vit_sam.tiny_vit_5m_224. This is because the name being registered conflicts with an existing name. Please check if this is not expected.
+  return register_model(fn_wrapper)
+/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/mobile_sam/modeling/tiny_vit_sam.py:656: UserWarning: Overwriting tiny_vit_11m_224 in registry with mobile_sam.modeling.tiny_vit_sam.tiny_vit_11m_224. This is because the name being registered conflicts with an existing name. Please check if this is not expected.
+  return register_model(fn_wrapper)
+/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/mobile_sam/modeling/tiny_vit_sam.py:656: UserWarning: Overwriting tiny_vit_21m_224 in registry with mobile_sam.modeling.tiny_vit_sam.tiny_vit_21m_224. This is because the name being registered conflicts with an existing name. Please check if this is not expected.
+  return register_model(fn_wrapper)
+/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/mobile_sam/modeling/tiny_vit_sam.py:656: UserWarning: Overwriting tiny_vit_21m_384 in registry with mobile_sam.modeling.tiny_vit_sam.tiny_vit_21m_384. This is because the name being registered conflicts with an existing name. Please check if this is not expected.
+  return register_model(fn_wrapper)
+/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/mobile_sam/modeling/tiny_vit_sam.py:656: UserWarning: Overwriting tiny_vit_21m_512 in registry with mobile_sam.modeling.tiny_vit_sam.tiny_vit_21m_512. This is because the name being registered conflicts with an existing name. Please check if this is not expected.
+  return register_model(fn_wrapper)
+Traceback (most recent call last):
+  File "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/train/train_mobile_hisam.py", line 122, in <module>
+    main()
+  File "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/train/train_mobile_hisam.py", line 109, in main
+    avg_loss = train_epoch(model, loader, optimizer, device)
+  File "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/train/train_mobile_hisam.py", line 68, in train_epoch
+    outputs = model(batch)  # returns up_masks_logits, up_masks, iou, hr_logits, hr_masks, iou_hr
+  File "/home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/models/mobile_hisam_model.py", line 179, in forward
+    sparse_prompt_embs, dense_prompt_embs = self.prompt_encoder(
+  File "/home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/models/prompt_encoder.py", line 152, in forward
+    bs = self._get_batch_size(points, boxes, masks)
+  File "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/models/prompt_encoder.py", line 117, in _get_batch_size
+    return points[0].shape[0]
+AttributeError: 'NoneType' object has no attribute 'shape'
+Traceback (most recent call last):
+  File "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/train/train_mobile_hisam.py", line 22, in <module>
+    from Mobile_Hi_SAM.models.mobile_hisam_model import MobileHiSAM
+ModuleNotFoundError: No module named 'Mobile_Hi_SAM'
+/home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/lib/python3.9/site-packages/timm/models/layers/__init__.py:48: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+/home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/lib/python3.9/site-packages/timm/models/registry.py:4: FutureWarning: Importing from timm.models.registry is deprecated, please import via timm.models
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.models", FutureWarning)
+/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/mobile_sam/modeling/tiny_vit_sam.py:656: UserWarning: Overwriting tiny_vit_5m_224 in registry with mobile_sam.modeling.tiny_vit_sam.tiny_vit_5m_224. This is because the name being registered conflicts with an existing name. Please check if this is not expected.
+  return register_model(fn_wrapper)
+/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/mobile_sam/modeling/tiny_vit_sam.py:656: UserWarning: Overwriting tiny_vit_11m_224 in registry with mobile_sam.modeling.tiny_vit_sam.tiny_vit_11m_224. This is because the name being registered conflicts with an existing name. Please check if this is not expected.
+  return register_model(fn_wrapper)
+/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/mobile_sam/modeling/tiny_vit_sam.py:656: UserWarning: Overwriting tiny_vit_21m_224 in registry with mobile_sam.modeling.tiny_vit_sam.tiny_vit_21m_224. This is because the name being registered conflicts with an existing name. Please check if this is not expected.
+  return register_model(fn_wrapper)
+/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/mobile_sam/modeling/tiny_vit_sam.py:656: UserWarning: Overwriting tiny_vit_21m_384 in registry with mobile_sam.modeling.tiny_vit_sam.tiny_vit_21m_384. This is because the name being registered conflicts with an existing name. Please check if this is not expected.
+  return register_model(fn_wrapper)
+/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/MobileSAM/mobile_sam/modeling/tiny_vit_sam.py:656: UserWarning: Overwriting tiny_vit_21m_512 in registry with mobile_sam.modeling.tiny_vit_sam.tiny_vit_21m_512. This is because the name being registered conflicts with an existing name. Please check if this is not expected.
+  return register_model(fn_wrapper)
+Traceback (most recent call last):
+  File "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/train/train_mobile_hisam.py", line 123, in <module>
+    main()
+  File "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/train/train_mobile_hisam.py", line 110, in main
+    avg_loss = train_epoch(model, loader, optimizer, device)
+  File "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/train/train_mobile_hisam.py", line 69, in train_epoch
+    outputs = model(batch)  # returns up_masks_logits, up_masks, iou, hr_logits, hr_masks, iou_hr
+  File "/home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/models/mobile_hisam_model.py", line 179, in forward
+    sparse_prompt_embs, dense_prompt_embs = self.prompt_encoder(
+  File "/home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1553, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/lib/python3.9/site-packages/torch/nn/modules/module.py", line 1562, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/models/prompt_encoder.py", line 156, in forward
+    point_embeddings = self._embed_points(coords, labels, pad=(boxes is None))
+  File "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/models/prompt_encoder.py", line 86, in _embed_points
+    point_embedding = self.pe_layer.forward_with_coords(points, self.input_image_size)
+  File "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/models/prompt_encoder.py", line 215, in forward_with_coords
+    return self._pe_encoding(coords.to(torch.float))  # B x N x C
+  File "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM/Mobile_Hi_SAM/models/prompt_encoder.py", line 190, in _pe_encoding
+    coords = coords @ self.positional_encoding_gaussian_matrix
+RuntimeError: Expected all tensors to be on the same device, but found at least two devices, cpu and cuda:0! (when checking argument for argument mat2 in method wrapper_CUDA_mm)

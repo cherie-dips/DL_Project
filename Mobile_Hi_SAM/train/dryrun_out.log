@@ -1,0 +1,180 @@
+Dry-run job started on vsky001 at Fri Nov 28 21:15:00 IST 2025
+Using python: /home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/bin/python
+Fri Nov 28 21:15:00 2025       
++-----------------------------------------------------------------------------+
+| NVIDIA-SMI 525.105.17   Driver Version: 525.105.17   CUDA Version: 12.0     |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|                               |                      |               MIG M. |
+|===============================+======================+======================|
+|   0  Tesla V100-PCIE...  Off  | 00000000:D8:00.0 Off |                    0 |
+| N/A   34C    P0    25W / 250W |      4MiB / 32768MiB |      0%      Default |
+|                               |                      |                  N/A |
++-------------------------------+----------------------+----------------------+
+                                                                               
++-----------------------------------------------------------------------------+
+| Processes:                                                                  |
+|  GPU   GI   CI        PID   Type   Process name                  GPU Memory |
+|        ID   ID                                                   Usage      |
+|=============================================================================|
+|  No running processes found                                                 |
++-----------------------------------------------------------------------------+
+Dry-run training finished at Fri Nov 28 21:15:13 IST 2025
+Dry-run job started on vsky001 at Fri Nov 28 21:22:40 IST 2025
+Using python: /home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/bin/python
+Fri Nov 28 21:22:40 2025       
++-----------------------------------------------------------------------------+
+| NVIDIA-SMI 525.105.17   Driver Version: 525.105.17   CUDA Version: 12.0     |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|                               |                      |               MIG M. |
+|===============================+======================+======================|
+|   0  Tesla V100-PCIE...  Off  | 00000000:D8:00.0 Off |                    0 |
+| N/A   34C    P0    25W / 250W |      4MiB / 32768MiB |      0%      Default |
+|                               |                      |                  N/A |
++-------------------------------+----------------------+----------------------+
+                                                                               
++-----------------------------------------------------------------------------+
+| Processes:                                                                  |
+|  GPU   GI   CI        PID   Type   Process name                  GPU Memory |
+|        ID   ID                                                   Usage      |
+|=============================================================================|
+|  No running processes found                                                 |
++-----------------------------------------------------------------------------+
+Dry-run training finished at Fri Nov 28 21:22:45 IST 2025
+Dry-run job started on vsky001 at Fri Nov 28 21:29:50 IST 2025
+Using python: /home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/bin/python
+Fri Nov 28 21:29:51 2025       
++-----------------------------------------------------------------------------+
+| NVIDIA-SMI 525.105.17   Driver Version: 525.105.17   CUDA Version: 12.0     |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|                               |                      |               MIG M. |
+|===============================+======================+======================|
+|   0  Tesla V100-PCIE...  Off  | 00000000:D8:00.0 Off |                    0 |
+| N/A   34C    P0    25W / 250W |      4MiB / 32768MiB |      0%      Default |
+|                               |                      |                  N/A |
++-------------------------------+----------------------+----------------------+
+                                                                               
++-----------------------------------------------------------------------------+
+| Processes:                                                                  |
+|  GPU   GI   CI        PID   Type   Process name                  GPU Memory |
+|        ID   ID                                                   Usage      |
+|=============================================================================|
+|  No running processes found                                                 |
++-----------------------------------------------------------------------------+
+Dry-run training finished at Fri Nov 28 21:29:55 IST 2025
+Dry-run job started on vsky001 at Fri Nov 28 21:34:51 IST 2025
+Using python: /home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/bin/python
+Fri Nov 28 21:34:52 2025       
++-----------------------------------------------------------------------------+
+| NVIDIA-SMI 525.105.17   Driver Version: 525.105.17   CUDA Version: 12.0     |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|                               |                      |               MIG M. |
+|===============================+======================+======================|
+|   0  Tesla V100-PCIE...  Off  | 00000000:D8:00.0 Off |                    0 |
+| N/A   34C    P0    25W / 250W |      4MiB / 32768MiB |      0%      Default |
+|                               |                      |                  N/A |
++-------------------------------+----------------------+----------------------+
+                                                                               
++-----------------------------------------------------------------------------+
+| Processes:                                                                  |
+|  GPU   GI   CI        PID   Type   Process name                  GPU Memory |
+|        ID   ID                                                   Usage      |
+|=============================================================================|
+|  No running processes found                                                 |
++-----------------------------------------------------------------------------+
+Dry-run training finished at Fri Nov 28 21:34:56 IST 2025
+Job started on: vsky001
+Time: Fri Nov 28 21:38:17 IST 2025
+Python: /home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/bin/python
+PYTHONPATH = /scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM:
+GPU info:
+Fri Nov 28 21:38:18 2025       
++-----------------------------------------------------------------------------+
+| NVIDIA-SMI 525.105.17   Driver Version: 525.105.17   CUDA Version: 12.0     |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|                               |                      |               MIG M. |
+|===============================+======================+======================|
+|   0  Tesla V100-PCIE...  Off  | 00000000:D8:00.0 Off |                    0 |
+| N/A   34C    P0    25W / 250W |      4MiB / 32768MiB |      0%      Default |
+|                               |                      |                  N/A |
++-------------------------------+----------------------+----------------------+
+                                                                               
++-----------------------------------------------------------------------------+
+| Processes:                                                                  |
+|  GPU   GI   CI        PID   Type   Process name                  GPU Memory |
+|        ID   ID                                                   Usage      |
+|=============================================================================|
+|  No running processes found                                                 |
++-----------------------------------------------------------------------------+
+Using device: cuda
+[MobileHiSAM] Loading MobileSAM encoder...
+[MobileHiSAM] Building adapter...
+[MobileHiSAM] Building ModalAligner...
+[MobileHiSAM] Loading PromptEncoder...
+[MobileHiSAM] Building MaskDecoder...
+Job finished at: Fri Nov 28 21:39:19 IST 2025
+Dry-run job started on vsky009 at Fri Nov 28 23:51:02 IST 2025
+Using python: /home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/bin/python
+Fri Nov 28 23:51:04 2025       
++-----------------------------------------------------------------------------+
+| NVIDIA-SMI 525.105.17   Driver Version: 525.105.17   CUDA Version: 12.0     |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|                               |                      |               MIG M. |
+|===============================+======================+======================|
+|   0  Tesla V100-PCIE...  Off  | 00000000:86:00.0 Off |                    0 |
+| N/A   42C    P0    41W / 250W |      0MiB / 32768MiB |      1%      Default |
+|                               |                      |                  N/A |
++-------------------------------+----------------------+----------------------+
+                                                                               
++-----------------------------------------------------------------------------+
+| Processes:                                                                  |
+|  GPU   GI   CI        PID   Type   Process name                  GPU Memory |
+|        ID   ID                                                   Usage      |
+|=============================================================================|
+|  No running processes found                                                 |
++-----------------------------------------------------------------------------+
+Dry-run training finished at Fri Nov 28 23:52:47 IST 2025
+Job started on: vsky009
+Time: Sat Nov 29 01:56:39 IST 2025
+Python: /home/hpc/visitor/px151.visitor/miniconda3/envs/mobile_hisam/bin/python
+PYTHONPATH = /scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM:
+GPU info:
+Sat Nov 29 01:56:40 2025       
++-----------------------------------------------------------------------------+
+| NVIDIA-SMI 525.105.17   Driver Version: 525.105.17   CUDA Version: 12.0     |
+|-------------------------------+----------------------+----------------------+
+| GPU  Name        Persistence-M| Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp  Perf  Pwr:Usage/Cap|         Memory-Usage | GPU-Util  Compute M. |
+|                               |                      |               MIG M. |
+|===============================+======================+======================|
+|   0  Tesla V100-PCIE...  Off  | 00000000:86:00.0 Off |                    0 |
+| N/A   42C    P0    40W / 250W |      0MiB / 32768MiB |      1%      Default |
+|                               |                      |                  N/A |
++-------------------------------+----------------------+----------------------+
+                                                                               
++-----------------------------------------------------------------------------+
+| Processes:                                                                  |
+|  GPU   GI   CI        PID   Type   Process name                  GPU Memory |
+|        ID   ID                                                   Usage      |
+|=============================================================================|
+|  No running processes found                                                 |
++-----------------------------------------------------------------------------+
+Using device: cuda
+[MobileHiSAM] Loading MobileSAM encoder...
+[MobileHiSAM] Building adapter...
+[MobileHiSAM] Building ModalAligner...
+[MobileHiSAM] Loading PromptEncoder...
+[MobileHiSAM] Building MaskDecoder...
+DEBUG PROMPTS: tensor([[[0.5000, 0.5000]]]) tensor([[1]])
+Job finished at: Sat Nov 29 01:59:40 IST 2025
