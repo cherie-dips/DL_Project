@@ -1,0 +1,17 @@
+# Mobile_Hi_SAM/configs/mobile_hisam.yaml
+model:
+  img_size: 1024
+  encoder_checkpoint: ../MobileSAM/weights/mobile_sam.pt  # relative to project root
+  use_tinyvit: true
+  embed_dim: 256
+  prompt_len: 12
+training:
+  batch_size: 1
+  epochs: 1
+  lr: 1e-4
+  weight_decay: 0.0
+data:
+  sample_images: ../Mobile_Hi_SAM/sample_images
+logging:
+  verbose: true
+

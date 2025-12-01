@@ -1,0 +1,55 @@
+
+#!/bin/bash
+#PBS -N mobile_hisam_hierarchical
+#PBS -P hpc.plaksha.px151
+#PBS -q high
+#PBS -l select=1:ncpus=4:ngpus=1:centos=skylake
+#PBS -l walltime=04:00:00
+#PBS -o hiertext_train_out_hierarchical.log
+#PBS -e hiertext_train_err_hierarchical.log
+
+echo "======================================"
+echo "Job started: $(date)"
+echo "Node: $(hostname)"
+echo "======================================"
+
+# Activate conda properly
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate mobile_hisam
+
+echo "Python: $(which python)"
+echo "CUDA visible devices:"
+echo $CUDA_VISIBLE_DEVICES
+
+echo "======================================"
+echo "GPU Info:"
+nvidia-smi
+echo "======================================"
+
+PROJECT_ROOT="/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM"
+export PYTHONPATH="$PROJECT_ROOT:$PYTHONPATH"
+
+cd $PROJECT_ROOT/Mobile_Hi_SAM/train
+
+HIERTEXT_ROOT="/scratch/hpc/visitor/px151.visitor/DL/DL_Project/hiertext"
+MOBILESAM_CKPT="$PROJECT_ROOT/MobileSAM/weights/mobile_sam.pt"
+
+echo "Starting hierarchical training on V100 GPU..."
+
+python train_hierarchical.py \
+    --root $HIERTEXT_ROOT \
+    --checkpoint_encoder $MOBILESAM_CKPT \
+    --epochs 10 \
+    --batch_size 4 \
+    --lr 1e-4 \
+    --max_samples 500 \
+    --loss_type simplified \
+    --weight_para 1.0 \
+    --weight_line 1.0 \
+    --weight_word 1.0 \
+    --save_freq 2
+
+echo "======================================"
+echo "Job finished: $(date)"
+echo "======================================"
+

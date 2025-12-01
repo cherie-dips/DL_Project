@@ -1,0 +1,257 @@
+import torch
+import torch.nn as nn
+from typing import List, Dict, Any, Tuple
+
+from .mobile_encoder import MobileSAMEncoder
+from ..adapters.adapter import MobileToHiSAMAdapter
+
+from .prompt_encoder import PromptEncoder
+from .modal_aligner import ModalAligner
+from .mask_decoder import MaskDecoder, HiDecoder
+from .transformer import TwoWayTransformer
+
+class MobileHiSAM(nn.Module):
+    """
+    Lightweight Hi-SAM model that replaces SAM's heavy ViT encoder
+    with a MobileSAM encoder + adapter.
+
+    Pipeline:
+        image → MobileSAMEncoder → Adapter → ModalAligner
+            → PromptEncoder → MaskDecoder (+ optional HiDecoder)
+    """
+
+    mask_threshold: float = 0.0
+    image_format: str = "RGB"
+    
+    def __init__(
+        self,
+        checkpoint_path=None,
+        img_size=1024,
+        embed_dim=256,
+        prompt_embed_dim=256,
+        multimask_output=True,
+        enable_hierarchical=False,
+    ):
+        super().__init__()
+
+        # --------------------------------------------------------
+        # 1. MobileSAM encoder (frozen)
+        # --------------------------------------------------------
+        print("[MobileHiSAM] Loading MobileSAM encoder...")
+        self.image_encoder = MobileSAMEncoder(
+            checkpoint_path=checkpoint_path,
+            img_size=img_size,
+            out_chans=embed_dim
+        )
+        for p in self.image_encoder.parameters():
+            p.requires_grad = False
+
+        # --------------------------------------------------------
+        # 2. Adapter (trainable)
+        # --------------------------------------------------------
+        print("[MobileHiSAM] Building adapter...")
+        self.adapter = MobileToHiSAMAdapter(in_dim=embed_dim, out_dim=embed_dim)
+
+        # --------------------------------------------------------
+        # 3. Modal Aligner (trainable)
+        # --------------------------------------------------------
+        print("[MobileHiSAM] Building ModalAligner...")
+        self.modal_aligner = ModalAligner(
+            transformer_dim=embed_dim,
+            prompt_len=12,
+            nhead=8,
+            dropout=0.1,
+            attn_layers=1,
+        )
+
+        # --------------------------------------------------------
+        # 4. Prompt Encoder (frozen)
+        # --------------------------------------------------------
+        print("[MobileHiSAM] Loading PromptEncoder...")
+        self.prompt_encoder = PromptEncoder(
+            embed_dim=prompt_embed_dim,
+            image_embedding_size=(img_size // 16, img_size // 16),  # 64x64
+            input_image_size=(img_size, img_size),
+            mask_in_chans=16,
+        )
+        for p in self.prompt_encoder.parameters():
+            p.requires_grad = False
+
+        # --------------------------------------------------------
+        # 5. Mask Decoder + Transformer (trainable)
+        # --------------------------------------------------------
+        print("[MobileHiSAM] Building MaskDecoder...")
+        transformer = TwoWayTransformer(
+            depth=2,
+            embedding_dim=embed_dim,
+            num_heads=8,
+            mlp_dim=2048,
+        )
+
+        self.mask_decoder = MaskDecoder(
+            transformer_dim=embed_dim,
+            transformer=transformer,
+            num_multimask_outputs=3,
+        )
+
+        # Optional hierarchical decoder
+        self.enable_hierarchical = enable_hierarchical
+        if enable_hierarchical:
+            print("[MobileHiSAM] Building HiDecoder (hierarchical mode enabled)")
+            self.hi_decoder = HiDecoder(
+                transformer_dim=embed_dim,
+                transformer=transformer,
+                num_multimask_outputs=3,
+            )
+        else:
+            self.hi_decoder = None
+
+        # --------------------------------------------------------
+        # Pixel normalization (same as SAM)
+        # --------------------------------------------------------
+        self.register_buffer("pixel_mean", torch.tensor([123.675, 116.28, 103.53]).view(-1, 1, 1))
+        self.register_buffer("pixel_std", torch.tensor([58.395, 57.12, 57.375]).view(-1, 1, 1))
+
+        self.multimask_output = multimask_output
+
+    @property
+    def device(self):
+        return self.pixel_mean.device
+
+    # ------------------------------------------------------------
+    # Preprocessing (same as SAM / Hi-SAM)
+    # ------------------------------------------------------------
+    def preprocess(self, x: torch.Tensor) -> torch.Tensor:
+        x = (x - self.pixel_mean) / self.pixel_std
+        h, w = x.shape[-2:]
+        pad_h = self.image_encoder.img_size - h
+        pad_w = self.image_encoder.img_size - w
+        x = nn.functional.pad(x, (0, pad_w, 0, pad_h))
+        return x
+
+    # ------------------------------------------------------------
+    # Forward
+    # ------------------------------------------------------------
+    def forward(self, batched_input: List[Dict[str, Any]]):
+
+        # 1. Preprocess and stack inputs
+        input_images = torch.stack(
+            [self.preprocess(x["image"]) for x in batched_input],
+            dim=0
+        )
+
+        # 2. MobileSAM encoder (frozen)
+        image_embeddings = self.image_encoder(input_images)
+
+        # 3. Adapter (trainable)
+        adapted_embeddings = self.adapter(image_embeddings)
+
+        # 4. ModalAligner
+        sparse_embeddings = self.modal_aligner(adapted_embeddings)
+
+        # Buffers for batch outputs
+        up_masks_logits = []
+        up_masks = []
+        iou_preds = []
+        hr_masks_logits = []
+        hr_masks = []
+        iou_preds_hr = []
+
+        hi_logits_all = []
+        hi_iou_all = []
+        word_logits_all = []
+
+        # 5. Process batch
+        for img_record, curr_emb, sparse_emb in zip(
+                batched_input,
+                adapted_embeddings,
+                sparse_embeddings):
+
+            # Prompt Encoder
+            if "point_coords" in img_record:
+                points = (img_record["point_coords"], img_record["point_labels"])
+            else:
+                points = None
+
+            sparse_prompt_embs, dense_prompt_embs = self.prompt_encoder(
+                points=points,
+                boxes=img_record.get("boxes", None),
+                masks=img_record.get("mask_inputs", None)
+            )
+
+            # Mask Decoder
+            low_res_masks, high_res_masks, iou_pred, iou_pred_hr = self.mask_decoder(
+                image_embeddings=curr_emb.unsqueeze(0),
+                image_pe=self.prompt_encoder.get_dense_pe(),
+                sparse_prompt_embeddings=sparse_prompt_embs,
+                dense_prompt_embeddings=dense_prompt_embs,
+                multimask_output=self.multimask_output,
+            )
+
+            # Postprocess masks
+            upscaled_low = self._postprocess_masks(low_res_masks, img_record)
+            upscaled_hr = self._postprocess_masks(high_res_masks, img_record)
+
+            # Store results
+            up_masks_logits.append(upscaled_low)
+            up_masks.append(upscaled_low > self.mask_threshold)
+            hr_masks_logits.append(upscaled_hr)
+            hr_masks.append(upscaled_hr > self.mask_threshold)
+            iou_preds.append(iou_pred)
+            iou_preds_hr.append(iou_pred_hr)
+
+            # Hierarchical word-level masks
+            if self.enable_hierarchical:
+                hi_masks, hi_iou, word_masks = self.hi_decoder(
+                    image_embeddings=curr_emb.unsqueeze(0),
+                    image_pe=self.prompt_encoder.get_dense_pe(),
+                    sparse_prompt_embeddings=sparse_prompt_embs,
+                    multimask_output=True,
+                )
+                hi_logits_all.append(hi_masks)
+                hi_iou_all.append(hi_iou)
+                word_logits_all.append(word_masks)
+
+        # Concatenate batch results
+        up_masks_logits = torch.cat(up_masks_logits, dim=0)
+        up_masks = torch.cat(up_masks, dim=0)
+        iou_preds = torch.cat(iou_preds, dim=0)
+        hr_masks_logits = torch.cat(hr_masks_logits, dim=0)
+        hr_masks = torch.cat(hr_masks, dim=0)
+        iou_preds_hr = torch.cat(iou_preds_hr, dim=0)
+
+        if self.enable_hierarchical:
+            hi_logits_all = torch.cat(hi_logits_all, dim=0)
+            hi_iou_all = torch.cat(hi_iou_all, dim=0)
+            word_logits_all = torch.cat(word_logits_all, dim=0)
+            return (
+                up_masks_logits, up_masks, iou_preds,
+                hr_masks_logits, hr_masks, iou_preds_hr,
+                hi_logits_all, hi_iou_all, word_logits_all
+            )
+
+        else:
+            return (
+                up_masks_logits, up_masks, iou_preds,
+                hr_masks_logits, hr_masks, iou_preds_hr
+            )
+
+    # ------------------------------------------------------------
+    # Postprocessing
+    # ------------------------------------------------------------
+    def _postprocess_masks(self, masks, image_record):
+        masks = nn.functional.interpolate(
+            masks,
+            (self.image_encoder.img_size, self.image_encoder.img_size),
+            mode="bilinear",
+            align_corners=False,
+        )
+        masks = masks[..., : image_record["image"].shape[-2], : image_record["image"].shape[-1]]
+        masks = nn.functional.interpolate(
+            masks,
+            image_record["original_size"],
+            mode="bilinear",
+            align_corners=False
+        )
+        return masks
+
