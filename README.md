@@ -363,4 +363,8 @@ Potential improvements include:
 Mobile-Hi-SAM demonstrates that hierarchical text segmentation can be achieved efficiently without heavy compute requirements, making it suitable for practical deployments outside of high-performance compute clusters.
 
 
+### Video: https://drive.google.com/file/d/1KRr0IiJe4BI6k3QTmSATROZW1ll48nXP/view?usp=share_link
+
+
+
 
