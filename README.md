@@ -210,6 +210,9 @@ The model is designed by combining the MobileSAM encoder with a custom hierarchi
 
 ### Model Architecture
 
+<img width="758" height="1098" alt="image" src="https://github.com/user-attachments/assets/a17765be-602a-43ee-b55b-b41f229cb825" />
+
+
   * **Encoder (MobileSAM):** Uses pretrained Tiny ViT Encoder. Takes 1024×1024 images and outputs Shallow (C=256), Mid-level (C=256), and Deep (C=320) feature maps.
   * **Decoder (Hierarchical Decoder):** Uses a three-stage upsampling path (Deep → Mid → Shallow fusion). Each stage contains Convolution + normalization + activation and Bilinear upsampling. The final segmentation head outputs 3 binary masks (word, line, paragraph).
 
@@ -348,4 +351,5 @@ Potential improvements include:
 ### Conclusion
 
 Mobile-Hi-SAM demonstrates that hierarchical text segmentation can be achieved efficiently without heavy compute requirements, making it suitable for practical deployments outside of high-performance compute clusters.
+
 
