@@ -60,6 +60,9 @@ The model predicts:
   * Text detection masks (words or lines)
   * An affinity matrix that groups detections into paragraphs
 
+<img width="559" height="677" alt="image" src="https://github.com/user-attachments/assets/d074ed35-72db-4fb5-91a1-aeb77c349da2" />
+
+
 This allows the system to localize text and recover layout structure in one forward pass. The unified detector works as follows:
 
 1.  **Object Queries + Pixel Features:** The model uses learnable object queries (N of them) that interact with pixel features through a dual-path transformer inside MaX-DeepLab. This enables the model to localize arbitrarily shaped text regions as segmentation masks.
@@ -84,6 +87,8 @@ This allows the system to localize text and recover layout structure in one forw
 The Text Grouping Adapter (TGA), proposed by Ding et al. in *Text Grouping Adapter: Adapting Pre-Trained Text Detector for Layout Analysis (CVPR 2024)*, introduces a lightweight, plug-in module that converts any text detector into a full layout analysis system. It has about 6M additional parameters. TGA uses a pre-trained text detector as its backbone (like MaskDINO) and adds grouping logic.
 
 #### Architecture
+
+<img width="1297" height="596" alt="image" src="https://github.com/user-attachments/assets/22d60010-dd2d-444b-ae05-bf359f0c048e" />
 
 TGA consists of three main components which convert instance masks from the detector into paragraph-level grouping predictions.
 
@@ -178,6 +183,9 @@ Hi-SAM does unified text segmentation and Layout Analysis. Hi-SAM excels in segm
 
 #### Architecture Overview
 
+<img width="1260" height="496" alt="image" src="https://github.com/user-attachments/assets/9e8b8fc0-d9a9-44df-b93a-cf7e297a8cda" />
+
+
   * **Feature Extraction (SAM’s Image Encoder + Adapter Tuning):** Uses the frozen image encoder of Segment Anything Model (SAM). Adapters are inserted into the ViT blocks (Down-projection → ReLU → Up-projection). Only these adapters are trained to learn fine text details.
   * **Pixel Level Masks (Self Prompting Module + S-Decoder):** Generates accurate pixel-level masks. Image embeddings are converted into implicit prompt tokens and fed into S-Decoder to generate Low-Resolution and High-Resolution masks.
   * **Hierarchical Text Segmentation (Prompt Encoder):** Generates masks at word, text-line, and paragraph levels from a single prompt. Outputs three distinct tokens for every point prompt: Token 1 (Word), Token 2 (Text-line), Token 3 (Paragraph).
@@ -246,6 +254,8 @@ The objective of Mobile-Hi-SAM is to combine the efficiency of MobileSAM’s Tin
   * A multi-component loss (Dice, Focal, IoU).
 
 ### 5.2 Components of the Solution
+
+<img width="1356" height="772" alt="image" src="https://github.com/user-attachments/assets/613f0a17-f280-4053-8b0f-227e6ae9fb5b" />
 
 **5.2.1 Image Encoder (Frozen MobileSAM TinyViT)**
 A pretrained TinyViT-based MobileSAM encoder is used without modification to reduce training cost.
@@ -351,5 +361,6 @@ Potential improvements include:
 ### Conclusion
 
 Mobile-Hi-SAM demonstrates that hierarchical text segmentation can be achieved efficiently without heavy compute requirements, making it suitable for practical deployments outside of high-performance compute clusters.
+
 
 
