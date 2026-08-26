@@ -173,6 +173,12 @@ def main():
                         help="root holding Hi-SAM's contributed stroke masks; the "
                              "split subdirectory is <root>/<split>_gt")
     parser.add_argument("--transformer_mlp_dim", type=int, default=2048)
+    parser.add_argument("--unfreeze_encoder", action="store_true",
+                        help="fine-tune TinyViT as well. Hi-SAM trains its whole "
+                             "encoder, so freezing ours is a second variable on top "
+                             "of the encoder swap.")
+    parser.add_argument("--encoder_lr", type=float, default=None,
+                        help="learning rate for the encoder (default: lr/10)")
 
     # loss weights
     parser.add_argument("--weight_word", type=float, default=1.0)
@@ -235,6 +241,7 @@ def main():
         enable_hierarchical=True,
         enable_s_decoder=args.enable_s_decoder,
         transformer_mlp_dim=args.transformer_mlp_dim,
+        freeze_encoder=not args.unfreeze_encoder,
     ).to(device)
     print(model.parameter_report())
 
@@ -250,8 +257,10 @@ def main():
         tversky_beta=args.tversky_beta,
     )
 
-    params = model.trainable_parameters()
-    optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=1e-4)
+    optimizer = torch.optim.AdamW(
+        model.parameter_groups(args.lr, args.encoder_lr),
+        lr=args.lr, weight_decay=1e-4,
+    )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=args.epochs, eta_min=args.lr * 0.01
     )
