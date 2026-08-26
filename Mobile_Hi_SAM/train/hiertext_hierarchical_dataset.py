@@ -80,6 +80,7 @@ class HierTextHierarchicalDataset(Dataset):
         seed: int = 0,
         include_text_mask: bool = False,
         text_mask_size: int = 1024,
+        stroke_gt_dir: Optional[str] = None,
         records: Optional[List[dict]] = None,
     ):
         self.root = root
@@ -92,12 +93,27 @@ class HierTextHierarchicalDataset(Dataset):
         # instance on every pass, or the val curve measures sampling noise.
         self.deterministic = deterministic
         self.seed = seed
-        # Whole-image text foreground for the S-Decoder's pixel-level branch.
-        # A union mask is the wrong target for a *hierarchy* level, but it is
-        # exactly the right target here. Off by default - it costs one polygon
-        # fill per word per sample.
+        # Stroke-level text foreground for the S-Decoder's pixel branch.
+        #
+        # HierText itself has no stroke annotations. Hi-SAM's authors contributed
+        # them as a separate download (binary PNGs, 0/255, in train_gt/
+        # validation_gt/test_gt) - see Hi-SAM's datasets/data_preparation.md. A
+        # union of filled word polygons is NOT a substitute: it is a box-ish blob
+        # where the target is letter strokes, so training on it would not
+        # reproduce Hi-SAM's fgIOU and the number would not be comparable.
         self.include_text_mask = include_text_mask
         self.text_mask_size = text_mask_size
+        self.stroke_gt_dir = stroke_gt_dir
+        if include_text_mask and not stroke_gt_dir:
+            raise ValueError(
+                "include_text_mask=True requires stroke_gt_dir pointing at "
+                "Hi-SAM's contributed stroke-level PNG masks (e.g. "
+                f"<root>/{split}_gt). Download them per Hi-SAM's "
+                "datasets/data_preparation.md. Filled polygons are not a valid "
+                "stand-in for stroke ground truth."
+            )
+        if stroke_gt_dir and not os.path.isdir(stroke_gt_dir):
+            raise FileNotFoundError(f"stroke_gt_dir does not exist: {stroke_gt_dir}")
 
         self.jsonl_path = os.path.join(root, "gt", f"{split}.jsonl")
         self.img_folder = os.path.join(root, split)
@@ -251,7 +267,7 @@ class HierTextHierarchicalDataset(Dataset):
             "input_size": (nh, nw),
             "original_size": (H, W),
             "image_id": img_id,
-            **self._text_mask(tree, scale),
+            **self._text_mask(img_id, scale, nh, nw),
         }
 
     @classmethod
@@ -261,26 +277,37 @@ class HierTextHierarchicalDataset(Dataset):
         ds.img_folder = img_folder
         return ds
 
-    def _text_mask(self, tree, scale: float) -> Dict[str, Any]:
-        """Union of every word polygon: the S-Decoder's pixel-level target."""
+    def _text_mask(self, img_id: str, scale: float, nh: int, nw: int) -> Dict[str, Any]:
+        """Load the stroke-level mask and put it through the image's geometry."""
         if not self.include_text_mask:
             return {}
-        size = self.text_mask_size
-        canvas = Image.new("L", (size, size), 0)
-        draw = ImageDraw.Draw(canvas)
-        s = scale * (size / self.img_size)
-        for para in tree:
-            for line in para["lines"]:
-                for word in line["words"]:
-                    pts = _as_xy(word) * s
-                    if len(pts) >= 3:
-                        draw.polygon([(float(x), float(y)) for x, y in pts], fill=1)
-        arr = torch.from_numpy(np.array(canvas, dtype=np.float32)).unsqueeze(0)
-        # The S-Decoder emits both a coarse and a refined mask; supervise both.
-        lr = torch.nn.functional.interpolate(
-            arr.unsqueeze(0), (self.mask_size, self.mask_size), mode="nearest"
+
+        path = None
+        for ext in (".png", ".PNG", ".jpg"):
+            candidate = os.path.join(self.stroke_gt_dir, f"{img_id}{ext}")
+            if os.path.exists(candidate):
+                path = candidate
+                break
+        if path is None:
+            raise FileNotFoundError(
+                f"No stroke-level mask for image '{img_id}' in {self.stroke_gt_dir}"
+            )
+
+        stroke = Image.open(path).convert("L").resize((nw, nh), Image.NEAREST)
+        canvas = Image.new("L", (self.img_size, self.img_size), 0)
+        canvas.paste(stroke, (0, 0))
+
+        full = torch.from_numpy(
+            (np.array(canvas, dtype=np.uint8) > 127).astype(np.float32)
+        ).unsqueeze(0)
+
+        hr = torch.nn.functional.interpolate(
+            full.unsqueeze(0), (self.text_mask_size, self.text_mask_size), mode="nearest"
         )[0]
-        return {"gt_text_mask": arr, "gt_text_mask_lr": lr}
+        lr = torch.nn.functional.interpolate(
+            full.unsqueeze(0), (self.mask_size, self.mask_size), mode="nearest"
+        )[0]
+        return {"gt_text_mask": hr, "gt_text_mask_lr": lr}
 
 
 def collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:

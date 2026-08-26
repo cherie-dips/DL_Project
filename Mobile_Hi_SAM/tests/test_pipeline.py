@@ -11,9 +11,13 @@ code path.
 Each check corresponds to a gate in REMEDIATION_PLAN.md.
 """
 
+import os
 import sys
+import tempfile
 import types
 from pathlib import Path
+
+from PIL import Image
 
 import numpy as np
 import torch
@@ -91,9 +95,18 @@ def fake_batch(batch_size=2, include_text_mask=False):
             }],
         }],
     }
+    stroke_dir = None
+    if include_text_mask:
+        # Hi-SAM's stroke masks are binary PNGs; synthesise one for the test.
+        stroke_dir = tempfile.mkdtemp()
+        arr = np.zeros((H, W), dtype=np.uint8)
+        arr[int(0.12 * H):int(0.18 * H), int(0.12 * W):int(0.28 * W)] = 255
+        Image.fromarray(arr).save(os.path.join(stroke_dir, "synthetic.png"))
+
     ds = HierTextHierarchicalDataset.from_records(
         [rec], img_folder="/nonexistent", deterministic=True,
         include_text_mask=include_text_mask, text_mask_size=1024,
+        stroke_gt_dir=stroke_dir,
     )
     return collate_fn([ds[0] for _ in range(batch_size)])
 
@@ -188,7 +201,11 @@ def main():
     check("ModalAligner built only with the S-Decoder",
           s_model.modal_aligner is not None and model.modal_aligner is None)
     s_batch = fake_batch(1, include_text_mask=True)   # HR branch is 1024^2; keep it small
-    check("dataset emits the pixel-level union target", "gt_text_mask" in s_batch)
+    check("dataset emits the stroke-level target", "gt_text_mask" in s_batch)
+    check("stroke target is binary and sparse (strokes, not blobs)",
+          set(torch.unique(s_batch["gt_text_mask"]).tolist()) <= {0.0, 1.0}
+          and float(s_batch["gt_text_mask"].mean()) < 0.2,
+          f"foreground {float(s_batch['gt_text_mask'].mean()):.4f}")
 
     s_model.train()
     s_out = s_model.forward_hierarchical(s_batch)

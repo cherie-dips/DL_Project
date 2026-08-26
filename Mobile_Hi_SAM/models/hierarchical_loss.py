@@ -93,13 +93,27 @@ def containment_penalty(
 
 
 class HierarchicalLoss(nn.Module):
-    """Weighted word/line/paragraph loss over the H-Decoder's outputs."""
+    """Weighted word/line/paragraph loss over the H-Decoder's outputs.
+
+    Mirrors Hi-SAM's composition (train.py):
+
+        loss = loss_lr + loss_hr + loss_word + loss_word_384 + loss_line + loss_para * 0.5
+
+    with focal weighted 20x. Two deliberate deviations, both documented:
+
+      * Hi-SAM computes its mask losses on uncertainty-sampled points
+        (``loss_hi_masks``) rather than densely. That is a memory accommodation
+        for a ViT-H-scale model; dense supervision uses strictly more signal and
+        is affordable here.
+      * The word level carries no IoU-head supervision in Hi-SAM, and does not
+        here either.
+    """
 
     def __init__(
         self,
         weight_word: float = 1.0,
         weight_line: float = 1.0,
-        weight_para: float = 1.0,
+        weight_para: float = 0.5,   # Hi-SAM: loss_para * 0.5
         weight_dice: float = 1.0,
         weight_focal: float = 20.0,
         weight_iou: float = 1.0,
@@ -151,14 +165,14 @@ class HierarchicalLoss(nn.Module):
         """
         logs: Dict[str, float] = {}
 
-        # Word is supervised on the refined 384^2 branch when available, which is
-        # the branch Hi-SAM added specifically for small text.
+        # Hi-SAM supervises the word level TWICE against the same target: once on
+        # the 256^2 hypernetwork output (loss_word) and once on the refined 384^2
+        # branch (loss_word_384). Both enter the sum at full weight.
+        loss_word, l_word = self._level(outputs["word"], batch["gt_word_mask_lr"])
         if self.supervise_word_hr and "word_hr" in outputs:
-            word_pred, word_gt = outputs["word_hr"], batch["gt_word_mask"]
-        else:
-            word_pred, word_gt = outputs["word"], batch["gt_word_mask_lr"]
-
-        loss_word, l_word = self._level(word_pred, word_gt)
+            loss_word_hr, l_word_hr = self._level(outputs["word_hr"], batch["gt_word_mask"])
+            loss_word = loss_word + loss_word_hr
+            logs["word_384"] = loss_word_hr.item()
         loss_line, l_line = self._level(outputs["line"], batch["gt_line_mask"])
         loss_para, l_para = self._level(outputs["para"], batch["gt_para_mask"])
 
@@ -174,15 +188,14 @@ class HierarchicalLoss(nn.Module):
 
         # The IoU head predicts one score per level; supervise it against the
         # realised IoU at the shared 256^2 resolution so the three line up.
+        # Hi-SAM applies the IoU MSE head to line (index 1) and paragraph (index 2)
+        # only - the word token gets no quality supervision.
         if self.weight_iou > 0 and "iou" in outputs:
-            stacked_pred = torch.cat(
-                [outputs["word"], outputs["line"], outputs["para"]], dim=1
+            stacked_pred = torch.cat([outputs["line"], outputs["para"]], dim=1)
+            stacked_gt = torch.cat([batch["gt_line_mask"], batch["gt_para_mask"]], dim=1)
+            loss_iou = iou_prediction_loss(
+                outputs["iou"][:, 1:3], stacked_pred, stacked_gt
             )
-            stacked_gt = torch.cat(
-                [batch["gt_word_mask_lr"], batch["gt_line_mask"], batch["gt_para_mask"]],
-                dim=1,
-            )
-            loss_iou = iou_prediction_loss(outputs["iou"], stacked_pred, stacked_gt)
             total = total + self.weight_iou * loss_iou
             logs["iou"] = loss_iou.item()
 
