@@ -20,29 +20,37 @@ python -m Mobile_Hi_SAM.tests.test_pipeline      # expect 20/20
 
 ## 1. Annotations
 
-Training needs the nested word → line → paragraph tree at
-`<root>/gt/<split>.jsonl`.
+Training needs the nested word → line → paragraph tree. HierText's official
+ground truth is present in `Data/gt/` — use it.
 
-**Preferred — HierText's own ground truth.** Download `train.jsonl` and
-`validation.jsonl` from
-[google-research-datasets/hiertext](https://github.com/google-research-datasets/hiertext)
-into `Data/gt/`. Required for any number you intend to publish.
+It ships as one pretty-printed JSON object per split (992 MB for train), which
+costs several GB once parsed and which every DataLoader worker would copy.
+Normalise it once into compact line-delimited JSONL so the loader can index by
+byte offset:
 
-**Fallback — rebuild from the union masks in `Data/Masks/`.** If the real `gt` is
-unavailable, reconstruct an approximate tree by connected components:
+```bash
+python -m Mobile_Hi_SAM.train.normalize_gt \
+    --src Data/gt/train.jsonl       --out Data/gt_compact/train.jsonl
+python -m Mobile_Hi_SAM.train.normalize_gt \
+    --src Data/gt/validation.jsonl  --out Data/gt_compact/validation.jsonl
+```
+
+Then train with `--gt_dir gt_compact`. Sources are never modified.
+
+**Fallback — rebuild from the union masks in `Data/Masks/`.** Only if the
+official gt is unavailable:
 
 ```bash
 python -m Mobile_Hi_SAM.train.masks_to_tree \
-    --masks_root Data/Masks --split train      --out Data/gt/train.jsonl
-python -m Mobile_Hi_SAM.train.masks_to_tree \
-    --masks_root Data/Masks --split validation --out Data/gt/validation.jsonl
+    --masks_root Data/Masks --split train --out Data/gt_compact/train.jsonl
 ```
 
-This works — containment holds and the counts are sane — but union masks discard
-instance boundaries, so touching words merge into one. Counts are lower bounds,
-paragraphs suffer most, and **any gap to Hi-SAM measured this way confounds the
-encoder swap with annotation damage.** Fine for training and iteration; not for
-the writeup. See the module docstring for the measured numbers.
+This works — containment holds, counts are sane — but union masks discard
+instance boundaries, so touching instances merge. Measured against the real gt on
+the validation split, reconstruction recovers 97.3 words/image where the truth is
+122.0, and 46.0 lines where the truth is 60.4: roughly a 20-25% undercount,
+worst at paragraph level. **Any gap to Hi-SAM measured this way confounds the
+encoder swap with annotation damage.** Fine for iteration, not for the writeup.
 
 ## 2. Train
 
@@ -54,6 +62,7 @@ cd Mobile_Hi_SAM/train
 
 python train_hierarchical_v2.py \
     --root ../../Data \
+    --gt_dir gt_compact \
     --checkpoint_encoder ../../weights/mobile_sam.pt \
     --batch_size 4 \
     --samples_per_image 1 \
@@ -73,13 +82,12 @@ batch size trades gradient quality against nothing. Data loading is 18 ms/image,
 so 4 workers keep the GPU saturated with room to spare.
 
 **Memory.** Annotations are read from line-delimited JSONL by byte offset and
-parsed one record at a time, so worker count costs almost no RAM. This matters:
-parsing the reconstructed train split into memory takes **2.55 GB**, and each
-DataLoader worker would hold its own copy — about 10 GB across 4 workers on a
-16 GB machine. If you substitute HierText's official `gt`, note that it ships as
-one large JSON object rather than JSONL; the loader detects that and falls back
-to a full in-memory parse, so drop to `--num_workers 2` in that case, or convert
-it to JSONL first.
+parsed one record at a time, so worker count costs almost no RAM — indexing the
+real validation gt grows RSS by 2 MB. This is why step 1 normalises: parsing
+HierText's official train file in one go costs several GB, and each of 4 workers
+would hold its own copy on a 16 GB machine. If you point `--gt_dir` at a
+single-JSON-object file, the loader detects it and falls back to a full parse;
+drop to `--num_workers 2` if you do that.
 
 | Setup | Samples/epoch | Epoch | 20 epochs |
 |---|---|---|---|
@@ -105,14 +113,14 @@ cd Mobile_Hi_SAM/evaluation
 # so it is comparable across model variants but not deployable.
 python evaluate_hisam_metrics.py \
     --run_dir ../train/hierarchical_training_laptop \
-    --root ../../Data --split validation --max_samples 200 \
+    --root ../../Data --gt_dir gt_compact --split validation --max_samples 200 \
     --protocol prompted
 
 # No ground truth at inference: grid prompts, NMS, instance matching.
 # This is the honest number. Slower - budget ~30 s/image at n_side=16.
 python evaluate_hisam_metrics.py \
     --run_dir ../train/hierarchical_training_laptop \
-    --root ../../Data --split validation --max_samples 50 \
+    --root ../../Data --gt_dir gt_compact --split validation --max_samples 50 \
     --protocol grid --n_side 12
 ```
 
@@ -148,5 +156,5 @@ which is what makes prompt-free inference (`--prompts modal`) meaningful.
 | `AssertionError: N trainable params receive no gradient` | A module is built but not in the forward path. Working as intended — do not widen the allow-list, find the module. |
 | `Checkpoint does not match the model` | Architecture changed since the checkpoint. Re-train, or `--allow_partial_load` only if you know why. |
 | `--enable_s_decoder needs --stroke_gt_root` | See section 4. |
-| `No usable records for split` | `Data/gt/<split>.jsonl` is missing or empty. See section 1. |
+| `No usable records for split` | `<root>/<gt_dir>/<split>.jsonl` is missing or empty. See section 1. |
 | MPS out of memory | Lower `--batch_size`. Memory is ~0.2 GB at batch 4, so suspect another process. |
