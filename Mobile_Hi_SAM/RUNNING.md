@@ -104,6 +104,13 @@ changes the effective epoch size, so hold it fixed across any runs you compare.
 Checkpoints land in `hierarchical_training_<run_name>/checkpoints/`;
 `best_model.pth` is selected on **validation** loss.
 
+**Expect zeros early.** Word ground truth is ~0.03% foreground — one word in a
+1024² image — so predicting all background is a correct local minimum for the
+first several epochs, and the word row of the metrics table will read 0.00. Check
+that the *loss* is falling rather than the metrics. If word metrics are still
+zero once line and paragraph have moved, that is the point to try `--use_tversky`
+(punishes misses harder) or `--weight_containment 0.5`.
+
 ## 3. Evaluate
 
 ```bash

@@ -262,7 +262,7 @@ def main():
     n_train = len(train_set)
     epoch_min = n_train * per_image / 60
     print(f"\n{n_train:,} training samples "
-          f"({len(train_set.records):,} images x {args.samples_per_image})")
+          f"({train_set._n_records():,} images x {args.samples_per_image})")
     print(f"~{epoch_min:.0f} min/epoch estimated on {device.type}; "
           f"{args.epochs} epochs ~ {epoch_min * args.epochs / 60:.1f} h")
     if val_loader is not None:
