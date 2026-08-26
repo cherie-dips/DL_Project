@@ -177,11 +177,12 @@ def evaluate_prompted(model, loader, device, max_prompts_per_image=32):
         )[:max_prompts_per_image]
 
         n = centres.shape[0]
-        out = model.forward_hierarchical({
-            "image": image.expand(n, -1, -1, -1),
-            "point_coords": centres.unsqueeze(1),
-            "point_labels": torch.ones(n, 1, dtype=torch.int64, device=device),
-        })
+        embeddings = model.encode(image)            # encoder runs ONCE
+        out = model.decode_prompts(
+            embeddings,
+            centres.unsqueeze(1),
+            torch.ones(n, 1, dtype=torch.int64, device=device),
+        )
 
         for i in range(n):
             for lvl, key in (("word", "word_hr"), ("line", "line"), ("para", "para")):
@@ -240,20 +241,20 @@ def evaluate_grid(model, loader, device, n_side=16, nms_iou=0.7, batch_prompts=3
         collected = {lvl: ([], []) for lvl in LEVELS}
         union = {lvl: None for lvl in LEVELS}
 
+        embeddings = model.encode(image)            # encoder runs ONCE per image
         if use_modal:
-            out = model.forward_hierarchical({"image": image}, use_modal_aligner=True)
-            chunks = [out]
+            chunks = [model.forward_hierarchical({"image": image}, use_modal_aligner=True)]
         else:
             points = grid_points(input_size, n_side, device)
             chunks = []
             for start in range(0, points.shape[0], batch_prompts):
                 chunk = points[start:start + batch_prompts]
                 n = chunk.shape[0]
-                chunks.append(model.forward_hierarchical({
-                    "image": image.expand(n, -1, -1, -1),
-                    "point_coords": chunk.unsqueeze(1),
-                    "point_labels": torch.ones(n, 1, dtype=torch.int64, device=device),
-                }))
+                chunks.append(model.decode_prompts(
+                    embeddings,
+                    chunk.unsqueeze(1),
+                    torch.ones(n, 1, dtype=torch.int64, device=device),
+                ))
 
         for out in chunks:
             scores = out["iou"].detach().cpu().numpy()
@@ -305,9 +306,12 @@ def print_table(results, protocol):
     if protocol == "prompted":
         print("NOTE: prompts come from ground truth. Not a deployable number.")
     print(
-        "NOTE: Hi-SAM's published table quotes one fgIOU (74.86) for both Word and\n"
-        "      Text-line, which suggests a single shared pixel-level metric from the\n"
-        "      S-Decoder. Confirm the definition before quoting a gap against it."
+        "NOTE: Hi-SAM's fgIOU (verified in their eval_img.py) is a single STROKE-level\n"
+        "      number aggregated over the split as sum(I)/sum(U) - which is why 74.86\n"
+        "      appears on both their Word and Text-line rows. It is not a per-level\n"
+        "      metric. Reproducing it needs the S-Decoder plus Hi-SAM's contributed\n"
+        "      stroke annotations; without those, leave that column empty rather than\n"
+        "      filling it with a different quantity."
     )
 
 
