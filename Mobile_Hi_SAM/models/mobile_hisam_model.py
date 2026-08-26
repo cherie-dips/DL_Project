@@ -48,12 +48,14 @@ class MobileHiSAM(nn.Module):
         enable_s_decoder: bool = False,
         init_decoder_from_sam: bool = True,
         transformer_mlp_dim: int = 2048,
+        freeze_encoder: bool = True,
     ):
         super().__init__()
 
         self.img_size = img_size
         self.enable_hierarchical = enable_hierarchical
         self.enable_s_decoder = enable_s_decoder
+        self.freeze_encoder = freeze_encoder
 
         # ------------------------------------------------------------------
         # 1. MobileSAM encoder (frozen; see train() for the buffer freeze too)
@@ -64,8 +66,11 @@ class MobileHiSAM(nn.Module):
             img_size=img_size,
             out_chans=embed_dim,
         )
+        # Hi-SAM trains its whole ViT-H encoder plus in-block adapters. Freezing
+        # TinyViT entirely is a second variable on top of the encoder swap, so it
+        # is a flag rather than a fixed choice - see REMEDIATION_PLAN.md.
         for p in self.image_encoder.parameters():
-            p.requires_grad = False
+            p.requires_grad = not freeze_encoder
 
         # ------------------------------------------------------------------
         # 2. Adapter (trainable)
@@ -248,9 +253,23 @@ class MobileHiSAM(nn.Module):
     # ----------------------------------------------------------------------
     def train(self, mode: bool = True):
         super().train(mode)
+        # Keep the encoder's BatchNorm buffers fixed even when its weights are
+        # being fine-tuned: TinyViT is full of BatchNorm and a batch of 4 gives
+        # far too noisy an estimate to re-fit running statistics on.
         self.image_encoder.eval()
         self.prompt_encoder.eval()
         return self
+
+    def parameter_groups(self, base_lr: float, encoder_lr: Optional[float] = None):
+        """Optimiser groups, so a fine-tuned encoder can use a smaller step."""
+        encoder = [p for p in self.image_encoder.parameters() if p.requires_grad]
+        encoder_ids = {id(p) for p in encoder}
+        rest = [p for p in self.parameters()
+                if p.requires_grad and id(p) not in encoder_ids]
+        groups = [{"params": rest, "lr": base_lr}]
+        if encoder:
+            groups.append({"params": encoder, "lr": encoder_lr or base_lr * 0.1})
+        return groups
 
     @property
     def device(self):
