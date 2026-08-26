@@ -37,7 +37,10 @@ PROJECT_ROOT = os.environ.get(
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from Mobile_Hi_SAM.models.mobile_hisam_model import MobileHiSAM  # noqa: E402
+from Mobile_Hi_SAM.models.mobile_hisam_model import (  # noqa: E402
+    MobileHiSAM,
+    pick_device,
+)
 from Mobile_Hi_SAM.evaluation.metrics import (  # noqa: E402
     MetricAccumulator,
     binarize,
@@ -322,9 +325,11 @@ def main():
     parser.add_argument("--encoder_ckpt", default=None)
     parser.add_argument("--allow_partial_load", action="store_true")
     parser.add_argument("--num_workers", type=int, default=4)
+    parser.add_argument("--device", default="auto",
+                        choices=["auto", "cuda", "mps", "cpu"])
     args = parser.parse_args()
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = pick_device(args.device)
     print(f"Using device: {device}")
 
     model, config = load_model(
@@ -337,7 +342,7 @@ def main():
     loader = DataLoader(
         dataset, batch_size=1, shuffle=False,
         num_workers=args.num_workers, collate_fn=eval_collate_fn,
-        pin_memory=torch.cuda.is_available(),
+        pin_memory=(device.type == "cuda"),
     )
 
     if args.protocol == "prompted":
