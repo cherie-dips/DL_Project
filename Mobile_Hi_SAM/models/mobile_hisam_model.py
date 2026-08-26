@@ -282,6 +282,44 @@ class MobileHiSAM(nn.Module):
         """images: (B, 3, H, W) in [0, 1] -> adapted embeddings (B, C, 64, 64)."""
         return self.adapter(self.image_encoder(self.preprocess(images)))
 
+    def decode_prompts(
+        self,
+        embeddings: torch.Tensor,
+        point_coords: torch.Tensor,
+        point_labels: torch.Tensor,
+    ) -> Dict[str, torch.Tensor]:
+        """Run the H-Decoder for N prompts against ONE image's embeddings.
+
+        At inference many prompts hit the same image, so the encoder must run
+        once and only the decoder per prompt. Passing an expanded image batch
+        instead re-runs the encoder N times, which dominates the cost.
+
+        Args:
+            embeddings: (1, C, H, W) from ``encode``.
+            point_coords: (N, 1, 2) in padded-image coordinates.
+            point_labels: (N, 1).
+        """
+        if self.hi_decoder is None:
+            raise RuntimeError("decode_prompts requires enable_hierarchical=True")
+
+        sparse, dense = self.prompt_encoder(
+            points=(point_coords, point_labels), boxes=None, masks=None
+        )
+        masks, iou_pred, word_masks = self.hi_decoder(
+            image_embeddings=embeddings,       # (1,C,H,W) -> repeated to N inside
+            image_pe=self.prompt_encoder.get_dense_pe(),
+            sparse_prompt_embeddings=sparse,
+            dense_prompt_embeddings=dense,
+            multimask_output=True,
+        )
+        return {
+            "word": masks[:, 0:1],
+            "line": masks[:, 1:2],
+            "para": masks[:, 2:3],
+            "word_hr": word_masks,
+            "iou": iou_pred,
+        }
+
     def forward_hierarchical(
         self,
         batch: Dict[str, Any],
