@@ -43,11 +43,15 @@ MASK_KEYS = (
     "gt_line_mask",
     "gt_para_mask",
 )
+OPTIONAL_KEYS = ("gt_text_mask", "gt_text_mask_lr")
 
 
 def to_device(batch, device):
     for k in MASK_KEYS:
         batch[k] = batch[k].to(device, non_blocking=True)
+    for k in OPTIONAL_KEYS:
+        if k in batch:
+            batch[k] = batch[k].to(device, non_blocking=True)
     return batch
 
 
@@ -106,6 +110,11 @@ def run_epoch(model, loader, criterion, optimizer, scaler, device, epoch, use_am
 
 
 def build_loader(args, split, shuffle, deterministic):
+    stroke_dir = (
+        os.path.join(args.stroke_gt_root, f"{split}_gt")
+        if args.enable_s_decoder and args.stroke_gt_root
+        else None
+    )
     dataset = HierTextHierarchicalDataset(
         args.root,
         split=split,
@@ -113,6 +122,8 @@ def build_loader(args, split, shuffle, deterministic):
         img_size=1024,
         samples_per_image=args.samples_per_image if split == "train" else 1,
         deterministic=deterministic,
+        include_text_mask=args.enable_s_decoder,
+        stroke_gt_dir=stroke_dir,
     )
     loader = DataLoader(
         dataset,
@@ -148,13 +159,18 @@ def main():
 
     # architecture
     parser.add_argument("--enable_s_decoder", action="store_true",
-                        help="also build Hi-SAM's S-Decoder (1024^2 pixel branch)")
+                        help="also build Hi-SAM's S-Decoder (stroke-level branch); "
+                             "requires --stroke_gt_root")
+    parser.add_argument("--stroke_gt_root", default=None,
+                        help="root holding Hi-SAM's contributed stroke masks; the "
+                             "split subdirectory is <root>/<split>_gt")
     parser.add_argument("--transformer_mlp_dim", type=int, default=2048)
 
     # loss weights
     parser.add_argument("--weight_word", type=float, default=1.0)
     parser.add_argument("--weight_line", type=float, default=1.0)
-    parser.add_argument("--weight_para", type=float, default=1.0)
+    parser.add_argument("--weight_para", type=float, default=0.5,
+                        help="Hi-SAM weights the paragraph level at 0.5")
     parser.add_argument("--weight_focal", type=float, default=20.0)
     parser.add_argument("--weight_iou", type=float, default=1.0)
     parser.add_argument("--weight_containment", type=float, default=0.0)
@@ -163,6 +179,16 @@ def main():
     parser.add_argument("--tversky_beta", type=float, default=0.7)
 
     args = parser.parse_args()
+
+    if args.enable_s_decoder and not args.stroke_gt_root:
+        parser.error(
+            "--enable_s_decoder needs --stroke_gt_root. The S-Decoder predicts "
+            "stroke-level text, and HierText has no stroke annotations of its "
+            "own; Hi-SAM's authors contributed them as a separate download (see "
+            "their datasets/data_preparation.md). Filled word polygons are not a "
+            "valid substitute - training on them would not reproduce Hi-SAM's "
+            "fgIOU. Omit --enable_s_decoder to train the H-Decoder alone."
+        )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")

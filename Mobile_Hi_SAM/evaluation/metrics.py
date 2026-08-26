@@ -14,11 +14,18 @@ Names here mean what they say:
                                                pixel-level quantity (see NOTE)
   * ``panoptic_quality``                     - instance-matched, via evaluation/pq.py
 
-NOTE on Hi-SAM parity: the reference table quotes the same fgIOU (74.86) for
-Word and Text-line, which suggests it is one shared pixel-level number from the
-S-Decoder rather than three independent per-level ones. Verify against the paper
-before quoting a gap against those columns - a per-level fgIOU is not the same
-quantity, however correctly it is computed.
+Hi-SAM parity, VERIFIED against ymy-k/Hi-SAM (eval_img.py):
+
+  * fgIOU is a single STROKE-level number, not a per-hierarchy-level one. The
+    published table repeats it unchanged on the Word and Text-line rows (both
+    74.86) because it is literally the same measurement. A per-level "fgIOU" is
+    not comparable to that column no matter how correctly it is computed.
+  * It is aggregated over the whole split as sum(I)/sum(U), not as a mean of
+    per-image IoUs. Use DatasetIoUAccumulator, not MetricAccumulator, for it.
+  * F-score, by contrast, IS per-image: precision and recall are computed per
+    image and then averaged.
+  * Reproducing fgIOU requires the S-Decoder plus Hi-SAM's contributed
+    stroke-level annotations for HierText, which are a separate download.
 """
 
 from typing import Dict, List, Sequence
@@ -115,6 +122,38 @@ def panoptic_quality(
 # ----------------------------------------------------------------------
 # Aggregation
 # ----------------------------------------------------------------------
+class DatasetIoUAccumulator:
+    """fgIOU the way Hi-SAM computes it: sum(intersection) / sum(union) over the
+    whole split, not the mean of per-image IoUs.
+
+    The two are different statistics - a dataset-aggregated ratio is dominated by
+    large-area images, a per-image mean is not - so a per-image mean cannot be
+    compared against Hi-SAM's published fgIOU column even when both are correctly
+    computed IoUs.
+
+    Note also that Hi-SAM's fgIOU is a single STROKE-level number, reported
+    unchanged on the Word and Text-line rows of its table (both 74.86). It is not
+    a per-hierarchy-level metric, and reproducing it requires the S-Decoder plus
+    Hi-SAM's contributed stroke annotations.
+    """
+
+    def __init__(self):
+        self.intersection = 0.0
+        self.union = 0.0
+
+    def update(self, pred: torch.Tensor, gt: torch.Tensor):
+        pred = pred.flatten()
+        gt = gt.flatten()
+        inter = float((pred * gt).sum())
+        self.intersection += inter
+        self.union += float(pred.sum()) + float(gt.sum()) - inter
+
+    def value(self, as_percent: bool = True) -> float:
+        if self.union <= 0:
+            return 0.0
+        return self.intersection / self.union * (100.0 if as_percent else 1.0)
+
+
 class MetricAccumulator:
     """Collects per-sample metrics and reports the mean as a percentage."""
 
