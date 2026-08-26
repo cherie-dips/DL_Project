@@ -1,35 +1,46 @@
 """
-Hierarchical Loss Functions for Mobile-Hi-SAM
-Implements weighted multi-level loss for paragraph, line, and word segmentation.
+Hierarchical loss for Mobile-Hi-SAM.
+
+Each level is supervised at the resolution its decoder branch actually produces,
+against ground truth rasterised there. Nothing is upsampled or downsampled
+before the comparison.
+
+Tversky (C2) and the containment penalty (C3) are implemented but default to off
+so that turning them on is a config change, not a code change - the plan calls
+for them to be evaluated one at a time against the validation curve.
 """
+
+from typing import Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Tuple
 
 
 def dice_loss(pred: torch.Tensor, target: torch.Tensor, smooth: float = 1e-5) -> torch.Tensor:
-    """
-    Compute Dice loss for binary segmentation.
-    
-    Args:
-        pred: (B, N, H, W) - Predicted masks (logits)
-        target: (B, N, H, W) - Ground truth masks (binary)
-        smooth: Smoothing factor to avoid division by zero
-        
-    Returns:
-        Scalar Dice loss
-    """
-    pred = torch.sigmoid(pred)
-    pred = pred.flatten(1)
+    """Dice over logits. Symmetric in false positives and false negatives."""
+    pred = torch.sigmoid(pred).flatten(1)
     target = target.flatten(1)
-    
     intersection = (pred * target).sum(dim=1)
     union = pred.sum(dim=1) + target.sum(dim=1)
-    
-    dice = (2. * intersection + smooth) / (union + smooth)
-    return 1 - dice.mean()
+    return 1 - ((2.0 * intersection + smooth) / (union + smooth)).mean()
+
+
+def tversky_loss(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    alpha: float = 0.3,
+    beta: float = 0.7,
+    smooth: float = 1e-5,
+) -> torch.Tensor:
+    """Dice generalised so false negatives can be punished harder than false
+    positives. beta > alpha targets a recall-bound failure mode."""
+    pred = torch.sigmoid(pred).flatten(1)
+    target = target.flatten(1)
+    tp = (pred * target).sum(dim=1)
+    fp = (pred * (1 - target)).sum(dim=1)
+    fn = ((1 - pred) * target).sum(dim=1)
+    return 1 - ((tp + smooth) / (tp + alpha * fp + beta * fn + smooth)).mean()
 
 
 def focal_loss(
@@ -38,238 +49,181 @@ def focal_loss(
     alpha: float = 0.25,
     gamma: float = 2.0,
 ) -> torch.Tensor:
-    """
-    Compute Focal loss for handling class imbalance.
-    
-    Args:
-        pred: (B, N, H, W) - Predicted masks (logits)
-        target: (B, N, H, W) - Ground truth masks (binary)
-        alpha: Weighting factor for positive class
-        gamma: Focusing parameter
-        
-    Returns:
-        Scalar Focal loss
-    """
+    """Focal loss. Requires binary targets - p_t stops being a probability if the
+    target is fractional, which is why masks are rasterised rather than resized."""
     pred = pred.flatten(1)
     target = target.flatten(1)
-    
-    bce_loss = F.binary_cross_entropy_with_logits(pred, target, reduction='none')
-    pred_prob = torch.sigmoid(pred)
-    p_t = pred_prob * target + (1 - pred_prob) * (1 - target)
-    
-    loss = bce_loss * ((1 - p_t) ** gamma)
-    
+    bce = F.binary_cross_entropy_with_logits(pred, target, reduction="none")
+    p = torch.sigmoid(pred)
+    p_t = p * target + (1 - p) * (1 - target)
+    loss = bce * ((1 - p_t) ** gamma)
     if alpha >= 0:
         alpha_t = alpha * target + (1 - alpha) * (1 - target)
         loss = alpha_t * loss
-    
     return loss.mean()
 
 
-def iou_loss(
+def iou_prediction_loss(
     pred_iou: torch.Tensor,
     pred_masks: torch.Tensor,
     target_masks: torch.Tensor,
 ) -> torch.Tensor:
-    """
-    Compute IoU prediction loss (MSE between predicted and actual IoU).
-    
-    Args:
-        pred_iou: (B, N) - Predicted IoU scores
-        pred_masks: (B, N, H, W) - Predicted masks (logits)
-        target_masks: (B, N, H, W) - Ground truth masks
-        
-    Returns:
-        Scalar MSE loss for IoU prediction
-    """
+    """MSE between the predicted quality score and the mask's realised IoU."""
     with torch.no_grad():
-        # Compute actual IoU
-        pred_masks_binary = (torch.sigmoid(pred_masks) > 0.5).float()
-        pred_masks_binary = pred_masks_binary.flatten(2)
-        target_masks_flat = target_masks.flatten(2)
-        
-        intersection = (pred_masks_binary * target_masks_flat).sum(dim=2)
-        union = pred_masks_binary.sum(dim=2) + target_masks_flat.sum(dim=2) - intersection
-        actual_iou = intersection / (union + 1e-6)
-    
-    # MSE loss between predicted and actual IoU
-    loss = F.mse_loss(pred_iou, actual_iou)
-    return loss
+        binary = (torch.sigmoid(pred_masks) > 0.5).float().flatten(2)
+        target = target_masks.flatten(2)
+        inter = (binary * target).sum(dim=2)
+        union = binary.sum(dim=2) + target.sum(dim=2) - inter
+        actual = inter / (union + 1e-6)
+    return F.mse_loss(pred_iou, actual)
+
+
+def containment_penalty(
+    word: torch.Tensor,
+    line: torch.Tensor,
+    para: torch.Tensor,
+) -> torch.Tensor:
+    """Penalise probability mass that escapes its parent.
+
+    word, line and para must be at the same resolution. Zero parameters; this is
+    what makes a 'hierarchical' loss actually hierarchical.
+    """
+    w, l, p = torch.sigmoid(word), torch.sigmoid(line), torch.sigmoid(para)
+    return F.relu(w - l).mean() + F.relu(l - p).mean()
 
 
 class HierarchicalLoss(nn.Module):
-    """
-    Multi-level hierarchical loss for paragraph, line, and word segmentation.
-    
-    Total Loss = α * L_para + β * L_line + γ * L_word
-    
-    Where each level loss is:
-        L_level = λ_dice * Dice + λ_focal * Focal + λ_iou * IoU_MSE
-    """
-    
+    """Weighted word/line/paragraph loss over the H-Decoder's outputs."""
+
     def __init__(
         self,
-        # Hierarchy level weights
-        weight_para: float = 1.0,
-        weight_line: float = 1.0,
         weight_word: float = 1.0,
-        # Loss component weights
+        weight_line: float = 1.0,
+        weight_para: float = 1.0,
         weight_dice: float = 1.0,
         weight_focal: float = 20.0,
         weight_iou: float = 1.0,
-        # Focal loss params
+        weight_containment: float = 0.0,   # C3: off by default
+        use_tversky: bool = False,         # C2: off by default
+        tversky_alpha: float = 0.3,
+        tversky_beta: float = 0.7,
         focal_alpha: float = 0.25,
         focal_gamma: float = 2.0,
+        supervise_word_hr: bool = True,
+        weight_pixel: float = 1.0,
     ):
         super().__init__()
-        
-        self.weight_para = weight_para
-        self.weight_line = weight_line
         self.weight_word = weight_word
-        
+        self.weight_line = weight_line
+        self.weight_para = weight_para
         self.weight_dice = weight_dice
         self.weight_focal = weight_focal
         self.weight_iou = weight_iou
-        
+        self.weight_containment = weight_containment
+        self.use_tversky = use_tversky
+        self.tversky_alpha = tversky_alpha
+        self.tversky_beta = tversky_beta
         self.focal_alpha = focal_alpha
         self.focal_gamma = focal_gamma
-    
+        self.supervise_word_hr = supervise_word_hr
+        self.weight_pixel = weight_pixel
+
+    def _region_loss(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        if self.use_tversky:
+            return tversky_loss(pred, target, self.tversky_alpha, self.tversky_beta)
+        return dice_loss(pred, target)
+
+    def _level(self, pred, target) -> Tuple[torch.Tensor, Dict[str, float]]:
+        region = self._region_loss(pred, target)
+        focal = focal_loss(pred, target, self.focal_alpha, self.focal_gamma)
+        total = self.weight_dice * region + self.weight_focal * focal
+        return total, {"region": region.item(), "focal": focal.item()}
+
     def forward(
         self,
-        # Paragraph predictions
-        pred_para_masks: torch.Tensor,
-        pred_para_iou: torch.Tensor,
-        target_para_masks: torch.Tensor,
-        # Line predictions
-        pred_line_masks: torch.Tensor,
-        pred_line_iou: torch.Tensor,
-        target_line_masks: torch.Tensor,
-        # Word predictions
-        pred_word_masks: torch.Tensor,
-        pred_word_iou: torch.Tensor,
-        target_word_masks: torch.Tensor,
-    ) -> Tuple[torch.Tensor, dict]:
+        outputs: Dict[str, torch.Tensor],
+        batch: Dict[str, torch.Tensor],
+    ) -> Tuple[torch.Tensor, Dict[str, float]]:
         """
-        Compute hierarchical loss.
-        
         Args:
-            pred_*_masks: (B, N, H, W) - Predicted masks (logits)
-            pred_*_iou: (B, N) - Predicted IoU scores
-            target_*_masks: (B, N, H, W) - Ground truth masks
-            
-        Returns:
-            total_loss: Scalar total loss
-            loss_dict: Dictionary with individual loss components
+            outputs: from ``MobileHiSAM.forward_hierarchical``.
+            batch:   collated batch carrying the gt_* masks.
         """
-        
-        # Paragraph loss
-        loss_para_dice = dice_loss(pred_para_masks, target_para_masks)
-        loss_para_focal = focal_loss(
-            pred_para_masks, target_para_masks,
-            alpha=self.focal_alpha, gamma=self.focal_gamma
-        )
-        loss_para_iou = iou_loss(pred_para_iou, pred_para_masks, target_para_masks)
-        loss_para = (
-            self.weight_dice * loss_para_dice +
-            self.weight_focal * loss_para_focal +
-            self.weight_iou * loss_para_iou
-        )
-        
-        # Line loss
-        loss_line_dice = dice_loss(pred_line_masks, target_line_masks)
-        loss_line_focal = focal_loss(
-            pred_line_masks, target_line_masks,
-            alpha=self.focal_alpha, gamma=self.focal_gamma
-        )
-        loss_line_iou = iou_loss(pred_line_iou, pred_line_masks, target_line_masks)
-        loss_line = (
-            self.weight_dice * loss_line_dice +
-            self.weight_focal * loss_line_focal +
-            self.weight_iou * loss_line_iou
-        )
-        
-        # Word loss
-        loss_word_dice = dice_loss(pred_word_masks, target_word_masks)
-        loss_word_focal = focal_loss(
-            pred_word_masks, target_word_masks,
-            alpha=self.focal_alpha, gamma=self.focal_gamma
-        )
-        loss_word_iou = iou_loss(pred_word_iou, pred_word_masks, target_word_masks)
-        loss_word = (
-            self.weight_dice * loss_word_dice +
-            self.weight_focal * loss_word_focal +
-            self.weight_iou * loss_word_iou
-        )
-        
-        # Total hierarchical loss
-        total_loss = (
-            self.weight_para * loss_para +
-            self.weight_line * loss_line +
-            self.weight_word * loss_word
-        )
-        
-        # Loss dictionary for logging
-        loss_dict = {
-            'total': total_loss.item(),
-            'para_total': loss_para.item(),
-            'para_dice': loss_para_dice.item(),
-            'para_focal': loss_para_focal.item(),
-            'para_iou': loss_para_iou.item(),
-            'line_total': loss_line.item(),
-            'line_dice': loss_line_dice.item(),
-            'line_focal': loss_line_focal.item(),
-            'line_iou': loss_line_iou.item(),
-            'word_total': loss_word.item(),
-            'word_dice': loss_word_dice.item(),
-            'word_focal': loss_word_focal.item(),
-            'word_iou': loss_word_iou.item(),
-        }
-        
-        return total_loss, loss_dict
+        logs: Dict[str, float] = {}
 
+        # Word is supervised on the refined 384^2 branch when available, which is
+        # the branch Hi-SAM added specifically for small text.
+        if self.supervise_word_hr and "word_hr" in outputs:
+            word_pred, word_gt = outputs["word_hr"], batch["gt_word_mask"]
+        else:
+            word_pred, word_gt = outputs["word"], batch["gt_word_mask_lr"]
 
-class SimplifiedHierarchicalLoss(nn.Module):
-    """
-    Simplified version using only Dice loss (faster training, good baseline).
-    """
-    
-    def __init__(
-        self,
-        weight_para: float = 1.0,
-        weight_line: float = 1.0,
-        weight_word: float = 1.0,
-    ):
-        super().__init__()
-        self.weight_para = weight_para
-        self.weight_line = weight_line
-        self.weight_word = weight_word
-    
-    def forward(
-        self,
-        pred_para_masks: torch.Tensor,
-        target_para_masks: torch.Tensor,
-        pred_line_masks: torch.Tensor,
-        target_line_masks: torch.Tensor,
-        pred_word_masks: torch.Tensor,
-        target_word_masks: torch.Tensor,
-    ) -> Tuple[torch.Tensor, dict]:
-        """Compute simplified hierarchical loss (Dice only)"""
-        
-        loss_para = dice_loss(pred_para_masks, target_para_masks)
-        loss_line = dice_loss(pred_line_masks, target_line_masks)
-        loss_word = dice_loss(pred_word_masks, target_word_masks)
-        
-        total_loss = (
-            self.weight_para * loss_para +
-            self.weight_line * loss_line +
+        loss_word, l_word = self._level(word_pred, word_gt)
+        loss_line, l_line = self._level(outputs["line"], batch["gt_line_mask"])
+        loss_para, l_para = self._level(outputs["para"], batch["gt_para_mask"])
+
+        for name, parts in (("word", l_word), ("line", l_line), ("para", l_para)):
+            for k, v in parts.items():
+                logs[f"{name}_{k}"] = v
+
+        total = (
             self.weight_word * loss_word
+            + self.weight_line * loss_line
+            + self.weight_para * loss_para
         )
-        
-        loss_dict = {
-            'total': total_loss.item(),
-            'para': loss_para.item(),
-            'line': loss_line.item(),
-            'word': loss_word.item(),
-        }
-        
-        return total_loss, loss_dict
+
+        # The IoU head predicts one score per level; supervise it against the
+        # realised IoU at the shared 256^2 resolution so the three line up.
+        if self.weight_iou > 0 and "iou" in outputs:
+            stacked_pred = torch.cat(
+                [outputs["word"], outputs["line"], outputs["para"]], dim=1
+            )
+            stacked_gt = torch.cat(
+                [batch["gt_word_mask_lr"], batch["gt_line_mask"], batch["gt_para_mask"]],
+                dim=1,
+            )
+            loss_iou = iou_prediction_loss(outputs["iou"], stacked_pred, stacked_gt)
+            total = total + self.weight_iou * loss_iou
+            logs["iou"] = loss_iou.item()
+
+        # S-Decoder pixel-level branch: whole-image text foreground, prompted by
+        # the ModalAligner. This is what puts the aligner in the gradient path.
+        if self.weight_pixel > 0 and "pixel_hr" in outputs and "gt_text_mask" in batch:
+            loss_hr, _ = self._level(outputs["pixel_hr"], batch["gt_text_mask"])
+            loss_pixel = loss_hr
+            logs["pixel_hr"] = loss_hr.item()
+            if "pixel" in outputs and "gt_text_mask_lr" in batch:
+                loss_lr, _ = self._level(outputs["pixel"], batch["gt_text_mask_lr"])
+                loss_pixel = loss_pixel + loss_lr
+                logs["pixel_lr"] = loss_lr.item()
+            # Quality heads for both S-Decoder branches, same treatment as the
+            # H-Decoder's: predict the mask's realised IoU.
+            if self.weight_iou > 0:
+                if "pixel_iou" in outputs:
+                    l = iou_prediction_loss(
+                        outputs["pixel_iou"], outputs["pixel_hr"], batch["gt_text_mask"]
+                    )
+                    loss_pixel = loss_pixel + self.weight_iou * l
+                    logs["pixel_iou"] = l.item()
+                if "pixel_iou_lr" in outputs and "pixel" in outputs:
+                    l = iou_prediction_loss(
+                        outputs["pixel_iou_lr"], outputs["pixel"], batch["gt_text_mask_lr"]
+                    )
+                    loss_pixel = loss_pixel + self.weight_iou * l
+                    logs["pixel_iou_lr"] = l.item()
+
+            total = total + self.weight_pixel * loss_pixel
+            logs["pixel"] = loss_pixel.item()
+
+        if self.weight_containment > 0:
+            pen = containment_penalty(
+                outputs["word"], outputs["line"], outputs["para"]
+            )
+            total = total + self.weight_containment * pen
+            logs["containment"] = pen.item()
+
+        logs["total"] = total.item()
+        logs["word"] = loss_word.item()
+        logs["line"] = loss_line.item()
+        logs["para"] = loss_para.item()
+        return total, logs

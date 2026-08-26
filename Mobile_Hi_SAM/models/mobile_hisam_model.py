@@ -1,72 +1,101 @@
+"""
+Mobile-Hi-SAM: MobileSAM's TinyViT encoder driving Hi-SAM's decoders.
+
+The encoder is the only component that differs from Hi-SAM, which is what makes
+the comparison to the published Hi-SAM numbers attributable to the encoder swap.
+
+Pipeline:
+    image -> MobileSAMEncoder (frozen) -> Adapter -> HiDecoder
+                                       -> ModalAligner (self-generated prompts)
+                                       -> PromptEncoder (frozen, SAM weights)
+    optional: -> MaskDecoder (S-Decoder) for the 1024^2 pixel-level branch
+"""
+
+import os
+from typing import Any, Dict, List, Optional, Tuple
+
 import torch
 import torch.nn as nn
-from typing import List, Dict, Any, Tuple
 
-from .mobile_encoder import MobileSAMEncoder
 from ..adapters.adapter import MobileToHiSAMAdapter
-
-from .prompt_encoder import PromptEncoder
+from .mask_decoder import HiDecoder, MaskDecoder
+from .mobile_encoder import MobileSAMEncoder
 from .modal_aligner import ModalAligner
-from .mask_decoder import MaskDecoder, HiDecoder
+from .prompt_encoder import PromptEncoder
 from .transformer import TwoWayTransformer
 
-class MobileHiSAM(nn.Module):
-    """
-    Lightweight Hi-SAM model that replaces SAM's heavy ViT encoder
-    with a MobileSAM encoder + adapter.
+# Native output resolutions of Hi-SAM's H-Decoder. Losses are computed at these
+# resolutions against ground truth rasterised there directly, so that neither the
+# prediction is upsampled nor the target downsampled before they are compared.
+HI_MASK_SIZE = 256   # word / line / paragraph masks from the hypernetwork path
+HI_WORD_SIZE = 384   # refined word branch (word_mask_dc -> interpolate -> refine)
+HR_MASK_SIZE = 1024  # S-Decoder pixel-level branch, when enabled
 
-    Pipeline:
-        image → MobileSAMEncoder → Adapter → ModalAligner
-            → PromptEncoder → MaskDecoder (+ optional HiDecoder)
-    """
+
+class MobileHiSAM(nn.Module):
+    """Hi-SAM with MobileSAM's TinyViT encoder in place of SAM's ViT-H."""
 
     mask_threshold: float = 0.0
     image_format: str = "RGB"
-    
+
     def __init__(
         self,
-        checkpoint_path=None,
-        img_size=1024,
-        embed_dim=256,
-        prompt_embed_dim=256,
-        multimask_output=True,
-        enable_hierarchical=False,
+        checkpoint_path: Optional[str] = None,
+        img_size: int = 1024,
+        embed_dim: int = 256,
+        prompt_embed_dim: int = 256,
+        enable_hierarchical: bool = True,
+        enable_s_decoder: bool = False,
+        init_decoder_from_sam: bool = True,
+        transformer_mlp_dim: int = 2048,
     ):
         super().__init__()
 
-        # --------------------------------------------------------
-        # 1. MobileSAM encoder (frozen)
-        # --------------------------------------------------------
+        self.img_size = img_size
+        self.enable_hierarchical = enable_hierarchical
+        self.enable_s_decoder = enable_s_decoder
+
+        # ------------------------------------------------------------------
+        # 1. MobileSAM encoder (frozen; see train() for the buffer freeze too)
+        # ------------------------------------------------------------------
         print("[MobileHiSAM] Loading MobileSAM encoder...")
         self.image_encoder = MobileSAMEncoder(
             checkpoint_path=checkpoint_path,
             img_size=img_size,
-            out_chans=embed_dim
+            out_chans=embed_dim,
         )
         for p in self.image_encoder.parameters():
             p.requires_grad = False
 
-        # --------------------------------------------------------
+        # ------------------------------------------------------------------
         # 2. Adapter (trainable)
-        # --------------------------------------------------------
+        # ------------------------------------------------------------------
         print("[MobileHiSAM] Building adapter...")
         self.adapter = MobileToHiSAMAdapter(in_dim=embed_dim, out_dim=embed_dim)
 
-        # --------------------------------------------------------
-        # 3. Modal Aligner (trainable)
-        # --------------------------------------------------------
-        print("[MobileHiSAM] Building ModalAligner...")
-        self.modal_aligner = ModalAligner(
-            transformer_dim=embed_dim,
-            prompt_len=12,
-            nhead=8,
-            dropout=0.1,
-            attn_layers=1,
-        )
+        # ------------------------------------------------------------------
+        # 3. Modal Aligner (trainable) - self-generated prompts
+        #
+        # In Hi-SAM the aligner exists to prompt the S-Decoder; the H-Decoder
+        # takes point prompts. Without an S-Decoder it has no consumer, and
+        # building it anyway recreates the dead-parameter bug this rewrite
+        # removes. It is therefore tied to enable_s_decoder.
+        # ------------------------------------------------------------------
+        if enable_s_decoder:
+            print("[MobileHiSAM] Building ModalAligner...")
+            self.modal_aligner = ModalAligner(
+                transformer_dim=embed_dim,
+                prompt_len=12,
+                nhead=8,
+                dropout=0.1,
+                attn_layers=1,
+            )
+        else:
+            self.modal_aligner = None
 
-        # --------------------------------------------------------
-        # 4. Prompt Encoder (frozen)
-        # --------------------------------------------------------
+        # ------------------------------------------------------------------
+        # 4. Prompt Encoder (frozen, initialised from the SAM checkpoint)
+        # ------------------------------------------------------------------
         print("[MobileHiSAM] Loading PromptEncoder...")
         self.prompt_encoder = PromptEncoder(
             embed_dim=prompt_embed_dim,
@@ -77,181 +106,359 @@ class MobileHiSAM(nn.Module):
         for p in self.prompt_encoder.parameters():
             p.requires_grad = False
 
-        # --------------------------------------------------------
-        # 5. Mask Decoder + Transformer (trainable)
-        # --------------------------------------------------------
-        print("[MobileHiSAM] Building MaskDecoder...")
-        transformer = TwoWayTransformer(
-            depth=2,
-            embedding_dim=embed_dim,
-            num_heads=8,
-            mlp_dim=2048,
-        )
+        # ------------------------------------------------------------------
+        # 5. Hi-SAM decoders (trainable)
+        #
+        # Each decoder gets its OWN TwoWayTransformer. Sharing one instance
+        # between the S- and H-Decoder is a ~3.29M parameter deviation in the
+        # component we are trying to hold fixed against Hi-SAM.
+        # ------------------------------------------------------------------
+        def _make_transformer():
+            return TwoWayTransformer(
+                depth=2,
+                embedding_dim=embed_dim,
+                num_heads=8,
+                mlp_dim=transformer_mlp_dim,
+            )
 
-        self.mask_decoder = MaskDecoder(
-            transformer_dim=embed_dim,
-            transformer=transformer,
-            num_multimask_outputs=3,
-        )
-
-        # Optional hierarchical decoder
-        self.enable_hierarchical = enable_hierarchical
         if enable_hierarchical:
-            print("[MobileHiSAM] Building HiDecoder (hierarchical mode enabled)")
+            print("[MobileHiSAM] Building HiDecoder (H-Decoder)...")
             self.hi_decoder = HiDecoder(
                 transformer_dim=embed_dim,
-                transformer=transformer,
+                transformer=_make_transformer(),
                 num_multimask_outputs=3,
             )
         else:
             self.hi_decoder = None
 
-        # --------------------------------------------------------
-        # Pixel normalization (same as SAM)
-        # --------------------------------------------------------
-        self.register_buffer("pixel_mean", torch.tensor([123.675, 116.28, 103.53]).view(-1, 1, 1))
-        self.register_buffer("pixel_std", torch.tensor([58.395, 57.12, 57.375]).view(-1, 1, 1))
+        if enable_s_decoder:
+            print("[MobileHiSAM] Building MaskDecoder (S-Decoder)...")
+            self.mask_decoder = MaskDecoder(
+                transformer_dim=embed_dim,
+                transformer=_make_transformer(),
+                num_multimask_outputs=3,
+            )
+        else:
+            # Not constructed at all - an unused decoder in the optimiser is
+            # exactly the dead-parameter bug this rewrite removes.
+            self.mask_decoder = None
 
-        self.multimask_output = multimask_output
+        # ------------------------------------------------------------------
+        # 6. Pixel normalization
+        #
+        # ToTensor() produces [0, 1]; SAM's published constants are for
+        # [0, 255]. Scale the constants, not the tensor.
+        # ------------------------------------------------------------------
+        self.register_buffer(
+            "pixel_mean",
+            torch.tensor([123.675, 116.28, 103.53]).view(-1, 1, 1) / 255.0,
+        )
+        self.register_buffer(
+            "pixel_std",
+            torch.tensor([58.395, 57.12, 57.375]).view(-1, 1, 1) / 255.0,
+        )
+
+        # ------------------------------------------------------------------
+        # 7. Initialise the frozen prompt encoder (and optionally the decoders)
+        #    from the SAM checkpoint instead of leaving them random.
+        # ------------------------------------------------------------------
+        if checkpoint_path and os.path.exists(checkpoint_path):
+            self.load_sam_components(
+                checkpoint_path, init_decoder=init_decoder_from_sam
+            )
+        else:
+            print(
+                "[MobileHiSAM] WARNING: no checkpoint given - the frozen prompt "
+                "encoder keeps random weights it can never learn away from."
+            )
+
+    # ----------------------------------------------------------------------
+    # Checkpoint loading
+    # ----------------------------------------------------------------------
+    def load_sam_components(self, checkpoint_path: str, init_decoder: bool = True):
+        """Load prompt_encoder (and optionally decoder) weights from a SAM checkpoint.
+
+        The prompt encoder is frozen, so whatever it is initialised with is what
+        it uses forever. Leaving it random means the point prompt carries fixed
+        but arbitrary information and ``get_dense_pe()`` feeds a random basis to
+        the transformer.
+        """
+        ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        if isinstance(ckpt, dict) and "model" in ckpt and not any(
+            k.startswith("image_encoder.") for k in ckpt
+        ):
+            ckpt = ckpt["model"]
+
+        def _subtree(prefix: str) -> Dict[str, torch.Tensor]:
+            return {
+                k[len(prefix):]: v
+                for k, v in ckpt.items()
+                if k.startswith(prefix)
+            }
+
+        # --- prompt encoder: must be complete, it can never be corrected ---
+        pe_state = _subtree("prompt_encoder.")
+        if pe_state:
+            missing, unexpected = self.prompt_encoder.load_state_dict(
+                pe_state, strict=False
+            )
+            if missing or unexpected:
+                raise RuntimeError(
+                    "[MobileHiSAM] Incomplete prompt_encoder load from "
+                    f"{checkpoint_path}. missing={list(missing)} "
+                    f"unexpected={list(unexpected)}. The prompt encoder is "
+                    "frozen, so a partial load is permanent."
+                )
+            print(
+                f"[MobileHiSAM] PromptEncoder initialised from checkpoint "
+                f"({len(pe_state)} tensors)"
+            )
+        else:
+            print(
+                "[MobileHiSAM] WARNING: checkpoint has no prompt_encoder.* keys; "
+                "the frozen prompt encoder stays random."
+            )
+
+        # --- decoders: free pretrained signal, partial overlap is expected ---
+        if not init_decoder:
+            return
+        md_state = _subtree("mask_decoder.")
+        if not md_state:
+            print("[MobileHiSAM] Checkpoint has no mask_decoder.* keys; decoders start from scratch.")
+            return
+
+        for name, module in (("hi_decoder", self.hi_decoder),
+                             ("mask_decoder", self.mask_decoder)):
+            if module is None:
+                continue
+            own = module.state_dict()
+            usable = {
+                k: v for k, v in md_state.items()
+                if k in own and own[k].shape == v.shape
+            }
+            module.load_state_dict(usable, strict=False)
+            print(
+                f"[MobileHiSAM] {name}: initialised {len(usable)}/{len(own)} "
+                f"tensors from SAM's mask_decoder"
+            )
+
+    # ----------------------------------------------------------------------
+    # Frozen means frozen: requires_grad=False stops weight updates but not
+    # BatchNorm running statistics, and TinyViT is full of them.
+    # ----------------------------------------------------------------------
+    def train(self, mode: bool = True):
+        super().train(mode)
+        self.image_encoder.eval()
+        self.prompt_encoder.eval()
+        return self
 
     @property
     def device(self):
         return self.pixel_mean.device
 
-    # ------------------------------------------------------------
-    # Preprocessing (same as SAM / Hi-SAM)
-    # ------------------------------------------------------------
+    # ----------------------------------------------------------------------
+    # Preprocessing
+    # ----------------------------------------------------------------------
     def preprocess(self, x: torch.Tensor) -> torch.Tensor:
+        """Normalise and pad a (B, 3, H, W) batch to the encoder's square input."""
         x = (x - self.pixel_mean) / self.pixel_std
         h, w = x.shape[-2:]
         pad_h = self.image_encoder.img_size - h
         pad_w = self.image_encoder.img_size - w
-        x = nn.functional.pad(x, (0, pad_w, 0, pad_h))
+        if pad_h or pad_w:
+            x = nn.functional.pad(x, (0, pad_w, 0, pad_h))
         return x
 
-    # ------------------------------------------------------------
+    # ----------------------------------------------------------------------
     # Forward
-    # ------------------------------------------------------------
-    def forward(self, batched_input: List[Dict[str, Any]]):
-
-        # 1. Preprocess and stack inputs
-        input_images = torch.stack(
-            [self.preprocess(x["image"]) for x in batched_input],
-            dim=0
+    # ----------------------------------------------------------------------
+    def _empty_dense(self, batch_size: int) -> torch.Tensor:
+        """The no-mask dense embedding, broadcast to a batch."""
+        return self.prompt_encoder.no_mask_embed.weight.reshape(1, -1, 1, 1).expand(
+            batch_size, -1, *self.prompt_encoder.image_embedding_size
         )
 
-        # 2. MobileSAM encoder (frozen)
-        image_embeddings = self.image_encoder(input_images)
+    def encode(self, images: torch.Tensor) -> torch.Tensor:
+        """images: (B, 3, H, W) in [0, 1] -> adapted embeddings (B, C, 64, 64)."""
+        return self.adapter(self.image_encoder(self.preprocess(images)))
 
-        # 3. Adapter (trainable)
-        adapted_embeddings = self.adapter(image_embeddings)
+    def forward_hierarchical(
+        self,
+        batch: Dict[str, Any],
+        use_modal_aligner: bool = False,
+    ) -> Dict[str, torch.Tensor]:
+        """Batched hierarchical forward.
 
-        # 4. ModalAligner
-        sparse_embeddings = self.modal_aligner(adapted_embeddings)
+        Args:
+            batch: dict with ``image`` (B,3,H,W) in [0,1] and, unless
+                ``use_modal_aligner``, ``point_coords`` (B,N,2) and
+                ``point_labels`` (B,N).
+            use_modal_aligner: take prompts from the ModalAligner instead of
+                supplied points, so inference needs no ground truth.
 
-        # Buffers for batch outputs
-        up_masks_logits = []
-        up_masks = []
-        iou_preds = []
-        hr_masks_logits = []
-        hr_masks = []
-        iou_preds_hr = []
+        Returns:
+            dict of logits. ``word``/``line``/``para`` are (B,1,256,256);
+            ``word_hr`` is (B,1,384,384); ``iou`` is (B,3).
+        """
+        if self.hi_decoder is None:
+            raise RuntimeError("forward_hierarchical requires enable_hierarchical=True")
 
-        hi_logits_all = []
-        hi_iou_all = []
-        word_logits_all = []
+        embeddings = self.encode(batch["image"])
 
-        # 5. Process batch
-        for img_record, curr_emb, sparse_emb in zip(
-                batched_input,
-                adapted_embeddings,
-                sparse_embeddings):
-
-            # Prompt Encoder
-            if "point_coords" in img_record:
-                points = (img_record["point_coords"], img_record["point_labels"])
-            else:
-                points = None
-
-            sparse_prompt_embs, dense_prompt_embs = self.prompt_encoder(
-                points=points,
-                boxes=img_record.get("boxes", None),
-                masks=img_record.get("mask_inputs", None)
-            )
-
-            # Mask Decoder
-            low_res_masks, high_res_masks, iou_pred, iou_pred_hr = self.mask_decoder(
-                image_embeddings=curr_emb.unsqueeze(0),
-                image_pe=self.prompt_encoder.get_dense_pe(),
-                sparse_prompt_embeddings=sparse_prompt_embs,
-                dense_prompt_embeddings=dense_prompt_embs,
-                multimask_output=self.multimask_output,
-            )
-
-            # Postprocess masks
-            upscaled_low = self._postprocess_masks(low_res_masks, img_record)
-            upscaled_hr = self._postprocess_masks(high_res_masks, img_record)
-
-            # Store results
-            up_masks_logits.append(upscaled_low)
-            up_masks.append(upscaled_low > self.mask_threshold)
-            hr_masks_logits.append(upscaled_hr)
-            hr_masks.append(upscaled_hr > self.mask_threshold)
-            iou_preds.append(iou_pred)
-            iou_preds_hr.append(iou_pred_hr)
-
-            # Hierarchical word-level masks
-            if self.enable_hierarchical:
-                hi_masks, hi_iou, word_masks = self.hi_decoder(
-                    image_embeddings=curr_emb.unsqueeze(0),
-                    image_pe=self.prompt_encoder.get_dense_pe(),
-                    sparse_prompt_embeddings=sparse_prompt_embs,
-                    multimask_output=True,
+        if use_modal_aligner:
+            if self.modal_aligner is None:
+                raise RuntimeError(
+                    "use_modal_aligner=True requires enable_s_decoder=True; the "
+                    "aligner is not built otherwise."
                 )
-                hi_logits_all.append(hi_masks)
-                hi_iou_all.append(hi_iou)
-                word_logits_all.append(word_masks)
-
-        # Concatenate batch results
-        up_masks_logits = torch.cat(up_masks_logits, dim=0)
-        up_masks = torch.cat(up_masks, dim=0)
-        iou_preds = torch.cat(iou_preds, dim=0)
-        hr_masks_logits = torch.cat(hr_masks_logits, dim=0)
-        hr_masks = torch.cat(hr_masks, dim=0)
-        iou_preds_hr = torch.cat(iou_preds_hr, dim=0)
-
-        if self.enable_hierarchical:
-            hi_logits_all = torch.cat(hi_logits_all, dim=0)
-            hi_iou_all = torch.cat(hi_iou_all, dim=0)
-            word_logits_all = torch.cat(word_logits_all, dim=0)
-            return (
-                up_masks_logits, up_masks, iou_preds,
-                hr_masks_logits, hr_masks, iou_preds_hr,
-                hi_logits_all, hi_iou_all, word_logits_all
-            )
-
+            sparse = self.modal_aligner(embeddings)
+            dense = self._empty_dense(embeddings.shape[0])
         else:
-            return (
-                up_masks_logits, up_masks, iou_preds,
-                hr_masks_logits, hr_masks, iou_preds_hr
-            )
+            points = (batch["point_coords"], batch["point_labels"])
+            sparse, dense = self.prompt_encoder(points=points, boxes=None, masks=None)
 
-    # ------------------------------------------------------------
-    # Postprocessing
-    # ------------------------------------------------------------
-    def _postprocess_masks(self, masks, image_record):
+        masks, iou_pred, word_masks = self.hi_decoder(
+            image_embeddings=embeddings,
+            image_pe=self.prompt_encoder.get_dense_pe(),
+            sparse_prompt_embeddings=sparse,
+            dense_prompt_embeddings=dense,
+            multimask_output=True,
+        )
+
+        # multimask_output=True slices [1:], so the three surviving tokens are
+        # word / line / paragraph in that order. word_masks comes from token 1,
+        # the same token that produces masks[:, 0].
+        out = {
+            "word": masks[:, 0:1],
+            "line": masks[:, 1:2],
+            "para": masks[:, 2:3],
+            "word_hr": word_masks,
+            "iou": iou_pred,
+        }
+
+        if self.enable_s_decoder:
+            # Hi-SAM prompts the S-Decoder from the ModalAligner, not from the
+            # point. This is also what puts the aligner in the gradient path.
+            aligner_sparse = self.modal_aligner(embeddings)
+            s_masks, hr_masks, s_iou, s_iou_hr = self.mask_decoder(
+                image_embeddings=embeddings,
+                image_pe=self.prompt_encoder.get_dense_pe(),
+                sparse_prompt_embeddings=aligner_sparse,
+                dense_prompt_embeddings=self._empty_dense(embeddings.shape[0]),
+                multimask_output=False,
+            )
+            # Text foreground is unambiguous, so single-mask mode: token 0 feeds
+            # both the coarse 256^2 mask and the refined 1024^2 one, and both are
+            # supervised.
+            out["pixel"] = s_masks
+            out["pixel_hr"] = hr_masks
+            out["pixel_iou_lr"] = s_iou      # quality of the 256^2 mask
+            out["pixel_iou"] = s_iou_hr      # quality of the 1024^2 mask
+
+        return out
+
+    def forward(self, batch: Dict[str, Any], **kwargs):
+        return self.forward_hierarchical(batch, **kwargs)
+
+    # ----------------------------------------------------------------------
+    # Postprocessing (inference only)
+    # ----------------------------------------------------------------------
+    def postprocess_masks(
+        self,
+        masks: torch.Tensor,
+        input_size: Tuple[int, int],
+        original_size: Tuple[int, int],
+    ) -> torch.Tensor:
+        """Undo the resize-and-pad: crop to the unpadded region, then rescale.
+
+        Args:
+            masks: (B, C, h, w) logits at decoder resolution.
+            input_size: (h, w) the image actually occupies inside the padded
+                square, i.e. before padding but after the aspect-preserving resize.
+            original_size: (H, W) of the source image.
+        """
         masks = nn.functional.interpolate(
             masks,
             (self.image_encoder.img_size, self.image_encoder.img_size),
             mode="bilinear",
             align_corners=False,
         )
-        masks = masks[..., : image_record["image"].shape[-2], : image_record["image"].shape[-1]]
+        masks = masks[..., : input_size[0], : input_size[1]]
         masks = nn.functional.interpolate(
-            masks,
-            image_record["original_size"],
-            mode="bilinear",
-            align_corners=False
+            masks, original_size, mode="bilinear", align_corners=False
         )
         return masks
 
+    # ----------------------------------------------------------------------
+    # Introspection
+    # ----------------------------------------------------------------------
+    def trainable_parameters(self) -> List[nn.Parameter]:
+        return [p for p in self.parameters() if p.requires_grad]
+
+    def parameter_report(self) -> str:
+        lines = []
+        total = trainable = 0
+        for name, module in [
+            ("image_encoder (frozen)", self.image_encoder),
+            ("adapter", self.adapter),
+            ("modal_aligner", self.modal_aligner),
+            ("prompt_encoder (frozen)", self.prompt_encoder),
+            ("hi_decoder", self.hi_decoder),
+            ("mask_decoder", self.mask_decoder),
+        ]:
+            if module is None:
+                lines.append(f"  {name:<26} not built")
+                continue
+            n = sum(p.numel() for p in module.parameters())
+            t = sum(p.numel() for p in module.parameters() if p.requires_grad)
+            total += n
+            trainable += t
+            lines.append(f"  {name:<26} {n:>12,}  trainable {t:>12,}")
+        lines.append(f"  {'TOTAL':<26} {total:>12,}  trainable {trainable:>12,}")
+        return "\n".join(lines)
+
+
+def structurally_unused_prefixes(model: nn.Module) -> Tuple[str, ...]:
+    """Parameters SAM's token layout strands, given how each decoder is called.
+
+    Both decoders keep SAM's 4-token layout (num_mask_tokens =
+    num_multimask_outputs + 1) but use different slices of it:
+
+      * H-Decoder, multimask_output=True  -> slice [1:], so token 0's
+        hypernetwork is unused.
+      * S-Decoder, multimask_output=False -> slice [0:1], so tokens 1-3's
+        hypernetworks are unused. Token 0 also feeds the HR branch.
+
+    This is Hi-SAM's own behaviour, kept for parity. It is derived from the
+    model's configuration rather than hard-coded so that the allow-list cannot
+    quietly absorb a genuine dead-parameter bug.
+    """
+    prefixes = []
+    if getattr(model, "hi_decoder", None) is not None:
+        prefixes.append("hi_decoder.output_hypernetworks_mlps.0.")
+    if getattr(model, "mask_decoder", None) is not None:
+        prefixes += [f"mask_decoder.output_hypernetworks_mlps.{i}." for i in (1, 2, 3)]
+    return tuple(prefixes)
+
+
+def assert_no_dead_parameters(model: nn.Module, allow: Optional[Tuple[str, ...]] = None):
+    """Fail loudly if a trainable parameter received no gradient.
+
+    Call once after the first ``loss.backward()``. Catches modules that are
+    constructed and optimised but never reached by the forward pass.
+    """
+    if allow is None:
+        allow = structurally_unused_prefixes(model)
+    dead = [
+        (n, p.numel())
+        for n, p in model.named_parameters()
+        if p.requires_grad and p.grad is None and not n.startswith(allow)
+    ]
+    if dead:
+        total = sum(n for _, n in dead)
+        detail = "\n".join(f"    {n} ({c:,})" for n, c in dead[:20])
+        raise AssertionError(
+            f"{total:,} trainable params across {len(dead)} tensors receive no "
+            f"gradient:\n{detail}"
+        )
+    return True

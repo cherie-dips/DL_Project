@@ -1,415 +1,303 @@
 """
-Train Mobile-Hi-SAM with Hierarchical Supervision V2
-- Full HierarchicalLoss (Dice + Focal + IoU)
-- Organized checkpoint structure
-- Auto-validation after training
-- Incremental training support
+Train Mobile-Hi-SAM (MobileSAM encoder + Hi-SAM H-Decoder) on HierText.
+
+The model wrapper lives in models/mobile_hisam_model.py and is shared with the
+evaluation script, so training and evaluation cannot drift apart.
 """
 
 import argparse
+import json
 import os
 import sys
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader
-from torch.cuda.amp import autocast, GradScaler
-from tqdm import tqdm
-import json
 from datetime import datetime
 from pathlib import Path
 
-PROJECT_ROOT = "/scratch/hpc/visitor/px151.visitor/DL/DL_Project/MOBILE-HI-SAM"
-sys.path.insert(0, PROJECT_ROOT)
+import torch
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 
-from Mobile_Hi_SAM.models.mobile_hisam_model import MobileHiSAM
-from Mobile_Hi_SAM.models.hierarchical_decoder import HierarchicalDecoder
-from Mobile_Hi_SAM.models.hierarchical_loss import HierarchicalLoss, SimplifiedHierarchicalLoss
-from Mobile_Hi_SAM.train.hiertext_hierarchical_dataset import (
+# Resolve the package root from this file so the script is not tied to one machine.
+PROJECT_ROOT = os.environ.get(
+    "MOBILE_HISAM_ROOT",
+    str(Path(__file__).resolve().parents[2]),
+)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from Mobile_Hi_SAM.models.mobile_hisam_model import (  # noqa: E402
+    MobileHiSAM,
+    assert_no_dead_parameters,
+)
+from Mobile_Hi_SAM.models.hierarchical_loss import HierarchicalLoss  # noqa: E402
+from Mobile_Hi_SAM.train.hiertext_hierarchical_dataset import (  # noqa: E402
     HierTextHierarchicalDataset,
-    collate_fn
+    collate_fn,
+)
+
+MASK_KEYS = (
+    "image",
+    "point_coords",
+    "point_labels",
+    "gt_word_mask",
+    "gt_word_mask_lr",
+    "gt_line_mask",
+    "gt_para_mask",
 )
 
 
-class MobileHiSAMHierarchical(MobileHiSAM):
-    """Extended Mobile-Hi-SAM with hierarchical decoder"""
-
-    def __init__(self, checkpoint_path=None, img_size=1024, embed_dim=256):
-        super().__init__(
-            checkpoint_path=checkpoint_path,
-            img_size=img_size,
-            embed_dim=embed_dim,
-            enable_hierarchical=False,
-        )
-
-        print("[MobileHiSAM] Adding HierarchicalDecoder...")
-        self.hierarchical_decoder = HierarchicalDecoder(
-            transformer_dim=embed_dim,
-            transformer=self.mask_decoder.transformer,
-            num_multimask_outputs=3,
-        )
-
-    def forward_hierarchical(self, batched_input):
-        """Forward pass with hierarchical predictions"""
-        input_images = torch.stack(
-            [self.preprocess(x["image"]) for x in batched_input],
-            dim=0
-        )
-
-        image_embeddings = self.image_encoder(input_images)
-        adapted_embeddings = self.adapter(image_embeddings)
-
-        all_para_masks = []
-        all_para_iou = []
-        all_line_masks = []
-        all_line_iou = []
-        all_word_masks = []
-        all_word_iou = []
-
-        for img_record, curr_emb in zip(batched_input, adapted_embeddings):
-            if "point_coords" in img_record:
-                points = (img_record["point_coords"], img_record["point_labels"])
-            else:
-                points = None
-
-            sparse_prompt_embs, dense_prompt_embs = self.prompt_encoder(
-                points=points,
-                boxes=img_record.get("boxes", None),
-                masks=img_record.get("mask_inputs", None)
-            )
-
-            para_masks, para_iou, line_masks, line_iou, word_masks, word_iou = \
-                self.hierarchical_decoder(
-                    image_embeddings=curr_emb.unsqueeze(0),
-                    image_pe=self.prompt_encoder.get_dense_pe(),
-                    sparse_prompt_embeddings=sparse_prompt_embs,
-                    dense_prompt_embeddings=dense_prompt_embs,
-                    multimask_output=False,
-                )
-
-            para_masks = self._postprocess_masks(para_masks, img_record)
-            line_masks = self._postprocess_masks(line_masks, img_record)
-            word_masks = self._postprocess_masks(word_masks, img_record)
-
-            all_para_masks.append(para_masks)
-            all_para_iou.append(para_iou)
-            all_line_masks.append(line_masks)
-            all_line_iou.append(line_iou)
-            all_word_masks.append(word_masks)
-            all_word_iou.append(word_iou)
-
-        para_masks = torch.cat(all_para_masks, dim=0)
-        para_iou = torch.cat(all_para_iou, dim=0)
-        line_masks = torch.cat(all_line_masks, dim=0)
-        line_iou = torch.cat(all_line_iou, dim=0)
-        word_masks = torch.cat(all_word_masks, dim=0)
-        word_iou = torch.cat(all_word_iou, dim=0)
-
-        return para_masks, para_iou, line_masks, line_iou, word_masks, word_iou
+def to_device(batch, device):
+    for k in MASK_KEYS:
+        batch[k] = batch[k].to(device, non_blocking=True)
+    return batch
 
 
-def train_epoch(model, loader, criterion, optimizer, scaler, device, epoch, use_amp=True):
-    """Train for one epoch with mixed precision"""
-    model.train()
+def run_epoch(model, loader, criterion, optimizer, scaler, device, epoch, use_amp, train=True):
+    model.train(train)
+    torch.set_grad_enabled(train)
 
-    total_loss = 0
-    loss_components = {'para': 0, 'line': 0, 'word': 0}
-    num_batches = 0
+    totals, count = {}, 0
+    checked_dead = not train  # only meaningful on a training step
 
-    pbar = tqdm(loader, desc=f"Epoch {epoch}")
+    desc = f"{'Epoch' if train else 'Val  '} {epoch}"
+    pbar = tqdm(loader, desc=desc, leave=False)
 
     for batch in pbar:
-        # Move data to device
-        for sample in batch:
-            sample["image"] = sample["image"].to(device)
-            sample["point_coords"] = sample["point_coords"].to(device)
-            sample["point_labels"] = sample["point_labels"].to(device)
-            sample["gt_para_mask"] = sample["gt_para_mask"].to(device)
-            sample["gt_line_mask"] = sample["gt_line_mask"].to(device)
-            sample["gt_word_mask"] = sample["gt_word_mask"].to(device)
+        batch = to_device(batch, device)
 
-        optimizer.zero_grad()
+        if train:
+            optimizer.zero_grad(set_to_none=False)
 
-        # Mixed precision forward
-        with autocast(enabled=use_amp):
-            para_masks, para_iou, line_masks, line_iou, word_masks, word_iou = \
-                model.forward_hierarchical(batch)
+        with torch.autocast(device_type=device.type, enabled=use_amp):
+            outputs = model.forward_hierarchical(batch)
+            loss, logs = criterion(outputs, batch)
 
-            gt_para = torch.stack([s["gt_para_mask"] for s in batch])
-            gt_line = torch.stack([s["gt_line_mask"] for s in batch])
-            gt_word = torch.stack([s["gt_word_mask"] for s in batch])
-
-            # Compute loss
-            if isinstance(criterion, SimplifiedHierarchicalLoss):
-                loss, loss_dict = criterion(
-                    para_masks, gt_para,
-                    line_masks, gt_line,
-                    word_masks, gt_word,
-                )
+        if train:
+            if use_amp:
+                scaler.scale(loss).backward()
+                scaler.unscale_(optimizer)
             else:
-                loss, loss_dict = criterion(
-                    para_masks, para_iou, gt_para,
-                    line_masks, line_iou, gt_line,
-                    word_masks, word_iou, gt_word,
-                )
+                loss.backward()
 
-        # Backward with gradient scaling
-        if use_amp:
-            scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            scaler.step(optimizer)
-            scaler.update()
-        else:
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            optimizer.step()
+            # A trainable parameter with no gradient is a module that was built
+            # and optimised but never reached by the forward pass.
+            if not checked_dead:
+                assert_no_dead_parameters(model)
+                checked_dead = True
 
-        # Logging
-        total_loss += loss.item()
-        if 'para' in loss_dict:
-            loss_components['para'] += loss_dict['para']
-            loss_components['line'] += loss_dict['line']
-            loss_components['word'] += loss_dict['word']
-        elif 'para_total' in loss_dict:
-            loss_components['para'] += loss_dict['para_total']
-            loss_components['line'] += loss_dict['line_total']
-            loss_components['word'] += loss_dict['word_total']
-        
-        num_batches += 1
+            torch.nn.utils.clip_grad_norm_(model.trainable_parameters(), max_norm=1.0)
+            if use_amp:
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                optimizer.step()
 
+        for k, v in logs.items():
+            totals[k] = totals.get(k, 0.0) + v
+        count += 1
         pbar.set_postfix({
-            'loss': f"{loss.item():.4f}",
-            'para': f"{loss_components['para']/num_batches:.4f}",
-            'line': f"{loss_components['line']/num_batches:.4f}",
-            'word': f"{loss_components['word']/num_batches:.4f}",
+            "loss": f"{logs['total']:.4f}",
+            "w": f"{logs['word']:.3f}",
+            "l": f"{logs['line']:.3f}",
+            "p": f"{logs['para']:.3f}",
         })
 
-    avg_loss = total_loss / max(1, num_batches)
-    avg_components = {k: v / max(1, num_batches) for k, v in loss_components.items()}
+    torch.set_grad_enabled(True)
+    return {k: v / max(1, count) for k, v in totals.items()}
 
-    return avg_loss, avg_components
+
+def build_loader(args, split, shuffle, deterministic):
+    dataset = HierTextHierarchicalDataset(
+        args.root,
+        split=split,
+        max_items=args.max_samples if split == "train" else args.max_val_samples,
+        img_size=1024,
+        samples_per_image=args.samples_per_image if split == "train" else 1,
+        deterministic=deterministic,
+    )
+    loader = DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=shuffle,
+        collate_fn=collate_fn,
+        num_workers=args.num_workers,
+        pin_memory=torch.cuda.is_available(),
+        drop_last=shuffle,
+        persistent_workers=args.num_workers > 0,
+    )
+    return dataset, loader
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train Mobile-Hi-SAM V2")
-    parser.add_argument("--root", type=str, required=True, help="HierText dataset root")
-    parser.add_argument("--epochs", type=int, default=10, help="Number of epochs")
-    parser.add_argument("--batch_size", type=int, default=4, help="Batch size")
-    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
-    parser.add_argument("--max_samples", type=int, default=None, help="Max samples (None=all)")
-    parser.add_argument("--checkpoint_encoder", type=str, required=True, help="MobileSAM checkpoint")
-    parser.add_argument("--resume", type=str, default=None, help="Resume from checkpoint")
-    parser.add_argument("--save_freq", type=int, default=5, help="Save every N epochs")
-    parser.add_argument("--loss_type", type=str, default="full",
-                        choices=["simplified", "full"],
-                        help="Loss: simplified (Dice) or full (Dice+Focal+IoU)")
-    
-    # Loss weights
-    parser.add_argument("--weight_para", type=float, default=1.0)
-    parser.add_argument("--weight_line", type=float, default=1.0)
+    parser = argparse.ArgumentParser(description="Train Mobile-Hi-SAM")
+    parser.add_argument("--root", required=True, help="HierText dataset root")
+    parser.add_argument("--checkpoint_encoder", required=True, help="MobileSAM checkpoint")
+    parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument("--batch_size", type=int, default=8)
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--max_samples", type=int, default=None)
+    parser.add_argument("--max_val_samples", type=int, default=500)
+    parser.add_argument("--samples_per_image", type=int, default=4,
+                        help="nested instances drawn per image per epoch")
+    parser.add_argument("--num_workers", type=int, default=4)
+    parser.add_argument("--resume", default=None)
+    parser.add_argument("--save_freq", type=int, default=5)
+    parser.add_argument("--run_name", default=None)
+    parser.add_argument("--use_amp", action="store_true")
+    parser.add_argument("--no_val", action="store_true",
+                        help="disable validation (then is_best falls back to train loss)")
+
+    # architecture
+    parser.add_argument("--enable_s_decoder", action="store_true",
+                        help="also build Hi-SAM's S-Decoder (1024^2 pixel branch)")
+    parser.add_argument("--transformer_mlp_dim", type=int, default=2048)
+
+    # loss weights
     parser.add_argument("--weight_word", type=float, default=1.0)
-    parser.add_argument("--weight_focal", type=float, default=20.0, help="Focal loss weight")
-    
-    # Training options
-    parser.add_argument("--use_amp", action="store_true", help="Use mixed precision")
-    parser.add_argument("--run_name", type=str, default=None, help="Custom run name")
+    parser.add_argument("--weight_line", type=float, default=1.0)
+    parser.add_argument("--weight_para", type=float, default=1.0)
+    parser.add_argument("--weight_focal", type=float, default=20.0)
+    parser.add_argument("--weight_iou", type=float, default=1.0)
+    parser.add_argument("--weight_containment", type=float, default=0.0)
+    parser.add_argument("--use_tversky", action="store_true")
+    parser.add_argument("--tversky_alpha", type=float, default=0.3)
+    parser.add_argument("--tversky_beta", type=float, default=0.7)
 
     args = parser.parse_args()
 
-    # Setup device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 
-    # Create output directory with organized structure
-    if args.run_name:
-        output_dir = Path(f"hierarchical_training_{args.run_name}")
-    else:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_dir = Path(f"hierarchical_training_{timestamp}")
-    
-    output_dir.mkdir(exist_ok=True)
+    run_name = args.run_name or datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = Path(f"hierarchical_training_{run_name}")
     checkpoint_dir = output_dir / "checkpoints"
-    checkpoint_dir.mkdir(exist_ok=True)
-    
+    checkpoint_dir.mkdir(parents=True, exist_ok=True)
     print(f"Output directory: {output_dir}")
-    print(f"Checkpoints: {checkpoint_dir}")
 
-    # Save config
-    config = vars(args)
-    config['output_dir'] = str(output_dir)
-    config['checkpoint_dir'] = str(checkpoint_dir)
-    
+    config = vars(args) | {"output_dir": str(output_dir)}
     with open(output_dir / "config.json", "w") as f:
         json.dump(config, f, indent=2)
 
-    # Load dataset
-    print("\nLoading dataset...")
-    dataset = HierTextHierarchicalDataset(
-        args.root,
-        split="train",
-        max_items=args.max_samples,
-    )
-    loader = DataLoader(
-        dataset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        collate_fn=collate_fn,
-        num_workers=4,
-        pin_memory=True,
-    )
-    print(f"Dataset size: {len(dataset)}")
-    print(f"Batches per epoch: {len(loader)}")
+    print("\nLoading datasets...")
+    train_set, train_loader = build_loader(args, "train", shuffle=True, deterministic=False)
+    val_loader = None
+    if not args.no_val:
+        try:
+            _, val_loader = build_loader(args, "validation", shuffle=False, deterministic=True)
+        except FileNotFoundError:
+            print("[warn] no validation split found; falling back to train loss for is_best")
 
-    # Load model
     print("\nLoading model...")
-    model = MobileHiSAMHierarchical(
+    model = MobileHiSAM(
         checkpoint_path=args.checkpoint_encoder,
         img_size=1024,
         embed_dim=256,
+        enable_hierarchical=True,
+        enable_s_decoder=args.enable_s_decoder,
+        transformer_mlp_dim=args.transformer_mlp_dim,
+    ).to(device)
+    print(model.parameter_report())
+
+    criterion = HierarchicalLoss(
+        weight_word=args.weight_word,
+        weight_line=args.weight_line,
+        weight_para=args.weight_para,
+        weight_focal=args.weight_focal,
+        weight_iou=args.weight_iou,
+        weight_containment=args.weight_containment,
+        use_tversky=args.use_tversky,
+        tversky_alpha=args.tversky_alpha,
+        tversky_beta=args.tversky_beta,
     )
-    model.to(device)
 
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    total_params = sum(p.numel() for p in model.parameters())
-    print(f"Trainable parameters: {trainable_params:,}")
-    print(f"Total parameters: {total_params:,}")
-
-    # Setup loss
-    if args.loss_type == "simplified":
-        print("\nUsing SimplifiedHierarchicalLoss (Dice only)")
-        criterion = SimplifiedHierarchicalLoss(
-            weight_para=args.weight_para,
-            weight_line=args.weight_line,
-            weight_word=args.weight_word,
-        )
-    else:
-        print(f"\nUsing HierarchicalLoss (Dice + Focal[{args.weight_focal}] + IoU)")
-        criterion = HierarchicalLoss(
-            weight_para=args.weight_para,
-            weight_line=args.weight_line,
-            weight_word=args.weight_word,
-            weight_dice=1.0,
-            weight_focal=args.weight_focal,
-            weight_iou=1.0,
-        )
-
-    # Setup optimizer & scheduler
-    params = [p for p in model.parameters() if p.requires_grad]
+    params = model.trainable_parameters()
     optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=args.epochs, eta_min=args.lr * 0.01
     )
-    
-    # Mixed precision scaler
-    scaler = GradScaler(enabled=args.use_amp)
+    scaler = torch.amp.GradScaler(device.type, enabled=args.use_amp)
 
-    # Resume from checkpoint
-    start_epoch = 1
-    best_loss = float('inf')
-    
+    start_epoch, best_metric = 1, float("inf")
     if args.resume and os.path.exists(args.resume):
         print(f"\nResuming from: {args.resume}")
-        checkpoint = torch.load(args.resume, map_location=device)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-        if 'scheduler_state_dict' in checkpoint:
-            scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-        start_epoch = checkpoint['epoch'] + 1
-        best_loss = checkpoint.get('best_loss', float('inf'))
-        print(f"Resuming from epoch {start_epoch}, best loss: {best_loss:.6f}")
+        ckpt = torch.load(args.resume, map_location=device, weights_only=False)
+        missing, unexpected = model.load_state_dict(ckpt["model_state_dict"], strict=False)
+        if missing or unexpected:
+            raise RuntimeError(
+                f"Checkpoint does not match the model.\n  missing={list(missing)[:10]}"
+                f"\n  unexpected={list(unexpected)[:10]}"
+            )
+        optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+        if "scheduler_state_dict" in ckpt:
+            scheduler.load_state_dict(ckpt["scheduler_state_dict"])
+        start_epoch = ckpt["epoch"] + 1
+        best_metric = ckpt.get("best_metric", float("inf"))
 
-    # Training loop
-    print(f"\n{'='*60}")
-    print(f"Starting training from epoch {start_epoch}")
-    print(f"{'='*60}\n")
-
-    training_history = []
+    print(f"\n{'='*64}\nTraining from epoch {start_epoch} to {args.epochs}\n{'='*64}")
+    history = []
 
     for epoch in range(start_epoch, args.epochs + 1):
-        print(f"\n{'='*60}")
-        print(f"Epoch {epoch}/{args.epochs}")
-        print(f"{'='*60}")
-
-        # Train
-        avg_loss, loss_components = train_epoch(
-            model, loader, criterion, optimizer, scaler, device, epoch, args.use_amp
+        train_logs = run_epoch(
+            model, train_loader, criterion, optimizer, scaler,
+            device, epoch, args.use_amp, train=True,
         )
 
-        # Update learning rate
+        val_logs = None
+        if val_loader is not None:
+            with torch.no_grad():
+                val_logs = run_epoch(
+                    model, val_loader, criterion, optimizer, scaler,
+                    device, epoch, args.use_amp, train=False,
+                )
+
         scheduler.step()
-        current_lr = optimizer.param_groups[0]['lr']
+        lr = optimizer.param_groups[0]["lr"]
 
-        # Log results
-        epoch_results = {
-            'epoch': epoch,
-            'loss': avg_loss,
-            'para_loss': loss_components['para'],
-            'line_loss': loss_components['line'],
-            'word_loss': loss_components['word'],
-            'learning_rate': current_lr,
+        # Selecting on train loss just picks the last epoch of a monotone curve.
+        selection = val_logs["total"] if val_logs else train_logs["total"]
+        is_best = selection < best_metric
+        if is_best:
+            best_metric = selection
+
+        record = {
+            "epoch": epoch,
+            "lr": lr,
+            "train": train_logs,
+            "val": val_logs,
+            "selected_on": "val" if val_logs else "train",
         }
-        training_history.append(epoch_results)
+        history.append(record)
 
-        print(f"\nEpoch {epoch} Summary:")
-        print(f"  Average Loss: {avg_loss:.6f}")
-        print(f"  Paragraph: {loss_components['para']:.6f}")
-        print(f"  Line: {loss_components['line']:.6f}")
-        print(f"  Word: {loss_components['word']:.6f}")
-        print(f"  Learning Rate: {current_lr:.6e}")
-
-        # Track best model
-        is_best = avg_loss < best_loss
+        print(f"\nEpoch {epoch}/{args.epochs}  lr={lr:.3e}")
+        print(f"  train  total={train_logs['total']:.4f}  "
+              f"word={train_logs['word']:.4f} line={train_logs['line']:.4f} para={train_logs['para']:.4f}")
+        if val_logs:
+            print(f"  val    total={val_logs['total']:.4f}  "
+                  f"word={val_logs['word']:.4f} line={val_logs['line']:.4f} para={val_logs['para']:.4f}")
         if is_best:
-            best_loss = avg_loss
+            print(f"  * new best ({record['selected_on']} loss {best_metric:.4f})")
 
-        # Save checkpoint
+        payload = {
+            "epoch": epoch,
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "scheduler_state_dict": scheduler.state_dict(),
+            "train_logs": train_logs,
+            "val_logs": val_logs,
+            "best_metric": best_metric,
+            "config": config,
+        }
         if epoch % args.save_freq == 0 or epoch == args.epochs:
-            checkpoint_path = checkpoint_dir / f"epoch_{epoch:02d}.pth"
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'scheduler_state_dict': scheduler.state_dict(),
-                'loss': avg_loss,
-                'best_loss': best_loss,
-                'loss_components': loss_components,
-            }, checkpoint_path)
-            print(f"  Saved: {checkpoint_path}")
-
-        # Save best model
+            torch.save(payload, checkpoint_dir / f"epoch_{epoch:02d}.pth")
         if is_best:
-            best_path = checkpoint_dir / "best_model.pth"
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'loss': avg_loss,
-            }, best_path)
-            print(f"  ✓ New best model saved! (loss: {best_loss:.6f})")
+            torch.save(payload, checkpoint_dir / "best_model.pth")
 
-        # Save training history
         with open(output_dir / "training_history.json", "w") as f:
-            json.dump(training_history, f, indent=2)
+            json.dump(history, f, indent=2)
 
-    print(f"\n{'='*60}")
-    print(f"✓ Training complete!")
-    print(f"  Best loss: {best_loss:.6f}")
-    print(f"  Output: {output_dir}")
-    print(f"  Best checkpoint: {checkpoint_dir / 'best_model.pth'}")
-    print(f"{'='*60}\n")
-    
-    # Write marker file for validation
-    with open(output_dir / ".training_complete", "w") as f:
-        json.dump({
-            'best_checkpoint': str(checkpoint_dir / 'best_model.pth'),
-            'best_loss': best_loss,
-            'total_epochs': args.epochs,
-            'completed_at': datetime.now().isoformat()
-        }, f, indent=2)
-    
-    print(f"\n✓ Ready for validation!")
-    print(f"Run: python ../evaluation/evaluate_hisam_metrics.py --run_dir {output_dir}")
+    print(f"\n{'='*64}\nDone. Best {history[-1]['selected_on']} loss: {best_metric:.6f}")
+    print(f"Best checkpoint: {checkpoint_dir / 'best_model.pth'}\n{'='*64}")
 
 
 if __name__ == "__main__":

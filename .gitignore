@@ -72,3 +72,8 @@ Thumbs.db
 .pytest_cache/
 .mypy_cache/
 .coverage
+
+# ==========================
+#  LOCAL NOTES / PLANS
+# ==========================
+REMEDIATION_PLAN.md
