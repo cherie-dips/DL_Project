@@ -22,6 +22,43 @@ from PIL import Image, ImageDraw
 from torch.utils.data import Dataset
 
 
+def index_jsonl(path: str, usable) -> Optional[List[int]]:
+    """Byte offsets of usable records in a line-delimited JSON file.
+
+    Returns None if the file is not line-delimited, so the caller can fall back
+    to a full parse. Indexing keeps only one record in memory at a time, which
+    matters because the reconstructed train split parses to 2.55 GB - and every
+    DataLoader worker would otherwise carry its own copy of it.
+    """
+    offsets = []
+    with open(path, "rb") as f:
+        first = f.readline()
+        if not first:
+            return []
+        try:
+            record = json.loads(first)
+        except json.JSONDecodeError:
+            return None                      # single large JSON object
+        if not isinstance(record, dict) or "paragraphs" not in record:
+            return None
+        if usable(record):
+            offsets.append(0)
+        while True:
+            offset = f.tell()
+            line = f.readline()
+            if not line:
+                break
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                return None
+            if usable(record):
+                offsets.append(offset)
+    return offsets
+
+
 def load_annotations(path: str) -> List[dict]:
     """HierText ships a single JSON object despite the .jsonl extension.
 
@@ -118,29 +155,52 @@ class HierTextHierarchicalDataset(Dataset):
         self.jsonl_path = os.path.join(root, "gt", f"{split}.jsonl")
         self.img_folder = os.path.join(root, split)
 
+        self.offsets = None
         if records is None:
             print(f"[HierText] Loading annotations from: {self.jsonl_path}")
-            records = load_annotations(self.jsonl_path)
-            print(f"[HierText] Found {len(records)} total annotations")
+            self.offsets = index_jsonl(self.jsonl_path, self._usable)
+            if self.offsets is not None:
+                self.records = None
+                print(f"[HierText] Indexed {len(self.offsets)} usable records "
+                      f"(lazy; records parsed on demand)")
+            else:
+                records = load_annotations(self.jsonl_path)
+                print(f"[HierText] Found {len(records)} total annotations "
+                      "(single JSON object - parsed into memory)")
 
-        self.records = [r for r in records if self._usable(r)]
-        print(f"[HierText] Filtered to {len(self.records)} with a complete word/line/para tree")
+        if self.offsets is None:
+            self.records = [r for r in records if self._usable(r)]
+            print(f"[HierText] Filtered to {len(self.records)} with a complete tree")
 
-        if max_items and len(self.records) > max_items:
+        if max_items and self._n_records() > max_items:
             rng = random.Random(seed)
-            self.records = rng.sample(self.records, max_items)
+            if self.offsets is not None:
+                self.offsets = rng.sample(self.offsets, max_items)
+            else:
+                self.records = rng.sample(self.records, max_items)
 
-        if not self.records:
+        if not self._n_records():
             raise ValueError(
                 f"No usable records for split '{split}'. Every record needs at "
                 "least one paragraph -> line -> word chain."
             )
 
         print(
-            f"[HierText] Using {len(self.records)} images "
+            f"[HierText] Using {self._n_records()} images "
             f"x {self.samples_per_image} instance(s) = "
-            f"{len(self.records) * self.samples_per_image} samples"
+            f"{self._n_records() * self.samples_per_image} samples"
         )
+
+    def _n_records(self) -> int:
+        return len(self.offsets) if self.offsets is not None else len(self.records or [])
+
+    def get_record(self, idx: int) -> dict:
+        """One annotation record, parsed on demand when the file is line-delimited."""
+        if self.offsets is None:
+            return self.records[idx]
+        with open(self.jsonl_path, "rb") as f:
+            f.seek(self.offsets[idx])
+            return json.loads(f.readline())
 
     # ------------------------------------------------------------------
     # Annotation tree
@@ -213,11 +273,11 @@ class HierTextHierarchicalDataset(Dataset):
 
     # ------------------------------------------------------------------
     def __len__(self) -> int:
-        return len(self.records) * self.samples_per_image
+        return self._n_records() * self.samples_per_image
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         record_idx = idx // self.samples_per_image
-        record = self.records[record_idx]
+        record = self.get_record(record_idx)
 
         rng = random.Random(self.seed * 1_000_003 + idx) if self.deterministic else random
 
@@ -339,7 +399,7 @@ class HierTextEvalDataset(HierTextHierarchicalDataset):
     """
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
-        record = self.records[idx]
+        record = self.get_record(idx)
 
         img_path, img_id = self._find_image(record, idx)
         if img_path is None:

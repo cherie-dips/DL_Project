@@ -72,6 +72,15 @@ is little to gain.
 batch size trades gradient quality against nothing. Data loading is 18 ms/image,
 so 4 workers keep the GPU saturated with room to spare.
 
+**Memory.** Annotations are read from line-delimited JSONL by byte offset and
+parsed one record at a time, so worker count costs almost no RAM. This matters:
+parsing the reconstructed train split into memory takes **2.55 GB**, and each
+DataLoader worker would hold its own copy — about 10 GB across 4 workers on a
+16 GB machine. If you substitute HierText's official `gt`, note that it ships as
+one large JSON object rather than JSONL; the loader detects that and falls back
+to a full in-memory parse, so drop to `--num_workers 2` in that case, or convert
+it to JSONL first.
+
 | Setup | Samples/epoch | Epoch | 20 epochs |
 |---|---|---|---|
 | Full train, 1 sample/image | 8,281 | ~25 min | ~8 h |
