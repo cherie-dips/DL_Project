@@ -26,7 +26,9 @@ if PROJECT_ROOT not in sys.path:
 
 from Mobile_Hi_SAM.models.mobile_hisam_model import (  # noqa: E402
     MobileHiSAM,
+    amp_supported,
     assert_no_dead_parameters,
+    pick_device,
 )
 from Mobile_Hi_SAM.models.hierarchical_loss import HierarchicalLoss  # noqa: E402
 from Mobile_Hi_SAM.train.hiertext_hierarchical_dataset import (  # noqa: E402
@@ -131,7 +133,7 @@ def build_loader(args, split, shuffle, deterministic):
         shuffle=shuffle,
         collate_fn=collate_fn,
         num_workers=args.num_workers,
-        pin_memory=torch.cuda.is_available(),
+        pin_memory=(args.device == "cuda" or torch.cuda.is_available()),
         drop_last=shuffle,
         persistent_workers=args.num_workers > 0,
     )
@@ -153,7 +155,10 @@ def main():
     parser.add_argument("--resume", default=None)
     parser.add_argument("--save_freq", type=int, default=5)
     parser.add_argument("--run_name", default=None)
-    parser.add_argument("--use_amp", action="store_true")
+    parser.add_argument("--use_amp", action="store_true",
+                        help="mixed precision; CUDA only, ignored elsewhere")
+    parser.add_argument("--device", default="auto",
+                        choices=["auto", "cuda", "mps", "cpu"])
     parser.add_argument("--no_val", action="store_true",
                         help="disable validation (then is_best falls back to train loss)")
 
@@ -190,10 +195,15 @@ def main():
             "fgIOU. Omit --enable_s_decoder to train the H-Decoder alone."
         )
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = pick_device(args.device)
+    if args.use_amp and not amp_supported(device):
+        print(f"[warn] --use_amp ignored: loss scaling is not wired up for {device.type}")
+        args.use_amp = False
     print(f"Using device: {device}")
-    if torch.cuda.is_available():
+    if device.type == "cuda":
         print(f"GPU: {torch.cuda.get_device_name(0)}")
+    elif device.type == "mps":
+        print("GPU: Apple Metal (MPS)")
 
     run_name = args.run_name or datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = Path(f"hierarchical_training_{run_name}")
@@ -243,6 +253,17 @@ def main():
         optimizer, T_max=args.epochs, eta_min=args.lr * 0.01
     )
     scaler = torch.amp.GradScaler(device.type, enabled=args.use_amp)
+
+    # A rough budget so a laptop run is not started blind.
+    per_image = {"cuda": 0.05, "mps": 0.18, "cpu": 1.2}.get(device.type, 0.5)
+    n_train = len(train_set)
+    epoch_min = n_train * per_image / 60
+    print(f"\n{n_train:,} training samples "
+          f"({len(train_set.records):,} images x {args.samples_per_image})")
+    print(f"~{epoch_min:.0f} min/epoch estimated on {device.type}; "
+          f"{args.epochs} epochs ~ {epoch_min * args.epochs / 60:.1f} h")
+    if val_loader is not None:
+        print(f"validating on {len(val_loader.dataset):,} images each epoch")
 
     start_epoch, best_metric = 1, float("inf")
     if args.resume and os.path.exists(args.resume):

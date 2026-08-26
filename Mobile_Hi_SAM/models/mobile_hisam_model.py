@@ -418,6 +418,30 @@ class MobileHiSAM(nn.Module):
         return "\n".join(lines)
 
 
+def pick_device(preference: Optional[str] = None) -> torch.device:
+    """Choose the best available accelerator.
+
+    Order: explicit preference, then CUDA, then Apple Metal (MPS), then CPU.
+    """
+    if preference and preference != "auto":
+        return torch.device(preference)
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
+def amp_supported(device: torch.device) -> bool:
+    """Mixed precision with loss scaling is only wired up for CUDA here.
+
+    torch.amp.GradScaler supports CUDA and CPU, not MPS. On Apple silicon the
+    frozen encoder means activation memory is already small (~0.2 GB at batch 4),
+    so AMP would buy little and risks silent dtype problems.
+    """
+    return device.type == "cuda"
+
+
 def structurally_unused_prefixes(model: nn.Module) -> Tuple[str, ...]:
     """Parameters SAM's token layout strands, given how each decoder is called.
 
