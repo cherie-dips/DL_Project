@@ -1,276 +1,381 @@
 """
-HierText Dataset Loader with 3-Level Hierarchy
-Extracts paragraph, line, and word annotations simultaneously.
+HierText dataset with per-instance hierarchical supervision.
+
+Each sample is one (word, line, paragraph) triple drawn from the annotation tree,
+prompted at the word's centroid. This is what makes the three levels genuinely
+different targets and makes the prompt determine the answer.
+
+Geometry follows SAM's protocol: the long side is resized to img_size and the
+image is padded bottom-right. Masks are rasterised directly at the decoder's
+output resolution from scaled vertices, so no mask is ever interpolated.
 """
 
+import hashlib
 import json
 import os
 import random
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
 import numpy as np
-from PIL import Image, ImageDraw
 import torch
+from PIL import Image, ImageDraw
 from torch.utils.data import Dataset
-from torchvision import transforms
+
+
+def load_annotations(path: str) -> List[dict]:
+    """HierText ships a single JSON object despite the .jsonl extension.
+
+    Falls back to line-delimited parsing so both layouts work.
+    """
+    with open(path, "r", encoding="utf-8") as f:
+        text = f.read()
+
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        records = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+        return records
+
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for key in ("annotations", "images"):
+            if key in data and isinstance(data[key], list):
+                return data[key]
+        for value in data.values():
+            if isinstance(value, list) and value:
+                return value
+    raise ValueError(f"Unrecognised annotation layout in {path}: {type(data)}")
+
+
+def _as_xy(vertices: Sequence) -> np.ndarray:
+    """Accept [[x,y],...] or [x,y,x,y,...] and return an (N, 2) float array."""
+    arr = np.asarray(vertices, dtype=np.float64)
+    if arr.ndim == 1:
+        arr = arr.reshape(-1, 2)
+    return arr
 
 
 class HierTextHierarchicalDataset(Dataset):
-    """
-    HierText dataset with hierarchical annotations.
-    Returns paragraph, line, and word masks for each sample.
-    """
-    
+    """Yields one nested (word, line, paragraph) instance per sample."""
+
     def __init__(
         self,
         root: str,
         split: str = "train",
-        max_items: int = None,
+        max_items: Optional[int] = None,
         img_size: int = 1024,
+        mask_size: int = 256,
+        word_mask_size: int = 384,
+        samples_per_image: int = 1,
+        deterministic: bool = False,
+        seed: int = 0,
+        include_text_mask: bool = False,
+        text_mask_size: int = 1024,
+        records: Optional[List[dict]] = None,
     ):
         self.root = root
         self.split = split
         self.img_size = img_size
-        
+        self.mask_size = mask_size
+        self.word_mask_size = word_mask_size
+        self.samples_per_image = max(1, samples_per_image)
+        # Validation must be reproducible: the same index has to yield the same
+        # instance on every pass, or the val curve measures sampling noise.
+        self.deterministic = deterministic
+        self.seed = seed
+        # Whole-image text foreground for the S-Decoder's pixel-level branch.
+        # A union mask is the wrong target for a *hierarchy* level, but it is
+        # exactly the right target here. Off by default - it costs one polygon
+        # fill per word per sample.
+        self.include_text_mask = include_text_mask
+        self.text_mask_size = text_mask_size
+
         self.jsonl_path = os.path.join(root, "gt", f"{split}.jsonl")
         self.img_folder = os.path.join(root, split)
-        
-        print(f"[HierText] Loading annotations from: {self.jsonl_path}")
-        print(f"[HierText] Images folder: {self.img_folder}")
-        
-        # Load JSON
-        with open(self.jsonl_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        
-        # Extract annotations
-        if isinstance(data, dict):
-            if "annotations" in data:
-                self.records = data["annotations"]
-            elif "images" in data:
-                self.records = data["images"]
-            else:
-                for key, value in data.items():
-                    if isinstance(value, list) and len(value) > 0:
-                        self.records = value
-                        break
-        elif isinstance(data, list):
-            self.records = data
-        else:
-            raise ValueError(f"Unexpected JSON structure: {type(data)}")
-        
-        print(f"[HierText] Found {len(self.records)} total annotations")
-        
-        # Filter records that have hierarchical annotations
-        self.records = [r for r in self.records if self._has_hierarchy(r)]
-        print(f"[HierText] Filtered to {len(self.records)} with hierarchy")
-        
-        # Take subset if specified
+
+        if records is None:
+            print(f"[HierText] Loading annotations from: {self.jsonl_path}")
+            records = load_annotations(self.jsonl_path)
+            print(f"[HierText] Found {len(records)} total annotations")
+
+        self.records = [r for r in records if self._usable(r)]
+        print(f"[HierText] Filtered to {len(self.records)} with a complete word/line/para tree")
+
         if max_items and len(self.records) > max_items:
-            self.records = random.sample(self.records, max_items)
-        
-        print(f"[HierText] Using {len(self.records)} samples")
-        
-        self.transform = transforms.Compose([
-            transforms.Resize((img_size, img_size)),
-            transforms.ToTensor()
-        ])
-    
-    def _has_hierarchy(self, record):
-        """Check if record has paragraph/line/word hierarchy"""
-        if "paragraphs" not in record:
-            return False
-        
-        for para in record["paragraphs"]:
-            if "lines" in para and len(para["lines"]) > 0:
-                for line in para["lines"]:
-                    if "words" in line and len(line["words"]) > 0:
-                        return True
-        return False
-    
-    def polygon_to_mask(self, size, vertices):
-        """Convert polygon vertices to binary mask"""
-        mask = Image.new("L", size, 0)
-        draw = ImageDraw.Draw(mask)
-        
-        try:
-            if isinstance(vertices[0], list):
-                pts = [(v[0], v[1]) for v in vertices]
-            else:
-                pts = [(vertices[i], vertices[i+1]) for i in range(0, len(vertices), 2)]
-            
-            if len(pts) >= 3:
-                draw.polygon(pts, fill=1)
-        except:
-            pass
-        
-        return torch.tensor(np.array(mask), dtype=torch.float32)
-    
-    def extract_hierarchy(self, record, img_size):
+            rng = random.Random(seed)
+            self.records = rng.sample(self.records, max_items)
+
+        if not self.records:
+            raise ValueError(
+                f"No usable records for split '{split}'. Every record needs at "
+                "least one paragraph -> line -> word chain."
+            )
+
+        print(
+            f"[HierText] Using {len(self.records)} images "
+            f"x {self.samples_per_image} instance(s) = "
+            f"{len(self.records) * self.samples_per_image} samples"
+        )
+
+    # ------------------------------------------------------------------
+    # Annotation tree
+    # ------------------------------------------------------------------
+    @staticmethod
+    def extract_nested(record: dict) -> List[dict]:
+        """Keep the hierarchy instead of flattening it into per-level unions."""
+        tree = []
+        for para in record.get("paragraphs", []) or []:
+            if len(para.get("vertices", []) or []) < 3:
+                continue
+            lines = []
+            for line in para.get("lines", []) or []:
+                if len(line.get("vertices", []) or []) < 3:
+                    continue
+                words = [
+                    w["vertices"]
+                    for w in (line.get("words", []) or [])
+                    if len(w.get("vertices", []) or []) >= 3
+                ]
+                if words:
+                    lines.append({"verts": line["vertices"], "words": words})
+            if lines:
+                tree.append({"verts": para["vertices"], "lines": lines})
+        return tree
+
+    def _usable(self, record: dict) -> bool:
+        return len(self.extract_nested(record)) > 0
+
+    # ------------------------------------------------------------------
+    # Rasterisation
+    # ------------------------------------------------------------------
+    @staticmethod
+    def polygon_to_mask(vertices, scale: float, size: int) -> torch.Tensor:
+        """Rasterise a polygon directly at `size`, scaling the vertices.
+
+        Drawing at the target resolution avoids resizing a binary mask, which
+        would produce fractional targets that break focal loss.
         """
-        Extract paragraph, line, and word annotations.
-        
-        Returns:
-            para_vertices: List of paragraph polygons
-            line_vertices: List of line polygons
-            word_vertices: List of word polygons
-        """
-        para_vertices = []
-        line_vertices = []
-        word_vertices = []
-        
-        if "paragraphs" not in record:
-            return para_vertices, line_vertices, word_vertices
-        
-        for para in record["paragraphs"]:
-            # Paragraph vertices
-            if "vertices" in para and len(para["vertices"]) >= 3:
-                para_vertices.append(para["vertices"])
-            
-            # Line vertices
-            if "lines" in para:
-                for line in para["lines"]:
-                    if "vertices" in line and len(line["vertices"]) >= 3:
-                        line_vertices.append(line["vertices"])
-                    
-                    # Word vertices
-                    if "words" in line:
-                        for word in line["words"]:
-                            if "vertices" in word and len(word["vertices"]) >= 3:
-                                word_vertices.append(word["vertices"])
-        
-        return para_vertices, line_vertices, word_vertices
-    
-    def create_hierarchical_masks(self, para_verts, line_verts, word_verts, img_size):
-        """
-        Create masks for all hierarchy levels.
-        Combines multiple instances into single mask per level.
-        
-        Returns:
-            para_mask: (H, W) - Union of all paragraph masks
-            line_mask: (H, W) - Union of all line masks
-            word_mask: (H, W) - Union of all word masks
-        """
-        W, H = img_size
-        
-        # Create combined masks
-        para_mask = torch.zeros((H, W), dtype=torch.float32)
-        line_mask = torch.zeros((H, W), dtype=torch.float32)
-        word_mask = torch.zeros((H, W), dtype=torch.float32)
-        
-        # Add all paragraph masks
-        for verts in para_verts:
-            mask = self.polygon_to_mask((W, H), verts)
-            para_mask = torch.maximum(para_mask, mask)
-        
-        # Add all line masks
-        for verts in line_verts:
-            mask = self.polygon_to_mask((W, H), verts)
-            line_mask = torch.maximum(line_mask, mask)
-        
-        # Add all word masks
-        for verts in word_verts:
-            mask = self.polygon_to_mask((W, H), verts)
-            word_mask = torch.maximum(word_mask, mask)
-        
-        return para_mask, line_mask, word_mask
-    
-    def create_prompt_from_hierarchy(self, para_verts, img_size):
-        """
-        Create a prompt point from paragraph center.
-        Could be extended to use more sophisticated hierarchical prompts.
-        """
-        W, H = img_size
-        
-        if len(para_verts) == 0:
-            # Fallback to center
-            return 0.5, 0.5
-        
-        # Use first paragraph center as prompt
-        try:
-            verts = para_verts[0]
-            if isinstance(verts[0], list):
-                verts_np = np.array(verts)
-            else:
-                verts_np = np.array(verts).reshape(-1, 2)
-            
-            cx = np.clip(verts_np[:, 0].mean() / W, 0, 1)
-            cy = np.clip(verts_np[:, 1].mean() / H, 0, 1)
-        except:
-            cx, cy = 0.5, 0.5
-        
-        return cx, cy
-    
-    def __getitem__(self, idx):
-        rec = self.records[idx]
-        
-        # Get image ID
-        img_id = None
-        if "image_id" in rec:
-            img_id = rec["image_id"]
-        elif "info" in rec and "image_id" in rec["info"]:
-            img_id = rec["info"]["image_id"]
-        elif "image_path" in rec:
-            img_id = os.path.splitext(os.path.basename(rec["image_path"]))[0]
-        
-        if img_id is None:
-            img_id = f"img_{idx}"
-        
-        # Find image file
-        img_path = None
-        for ext in [".jpg", ".png", ".jpeg", ".JPG", ".PNG"]:
-            test_path = os.path.join(self.img_folder, f"{img_id}{ext}")
-            if os.path.exists(test_path):
-                img_path = test_path
-                break
-        
-        if img_path is None or not os.path.exists(img_path):
-            # Dummy image
-            img = Image.new("RGB", (self.img_size, self.img_size), color=(128, 128, 128))
-            W, H = self.img_size, self.img_size
+        mask = Image.new("L", (size, size), 0)
+        pts = _as_xy(vertices) * scale
+        if len(pts) >= 3:
+            ImageDraw.Draw(mask).polygon([(float(x), float(y)) for x, y in pts], fill=1)
+        return torch.from_numpy(np.array(mask, dtype=np.float32))
+
+    @staticmethod
+    def centroid(vertices, scale: float) -> Tuple[float, float]:
+        pts = _as_xy(vertices) * scale
+        return float(pts[:, 0].mean()), float(pts[:, 1].mean())
+
+    # ------------------------------------------------------------------
+    # Image loading
+    # ------------------------------------------------------------------
+    def _find_image(self, record: dict, idx: int) -> Tuple[Optional[str], str]:
+        img_id = (
+            record.get("image_id")
+            or (record.get("info") or {}).get("image_id")
+            or (
+                os.path.splitext(os.path.basename(record["image_path"]))[0]
+                if "image_path" in record
+                else None
+            )
+            or f"img_{idx}"
+        )
+        for ext in (".jpg", ".png", ".jpeg", ".JPG", ".PNG"):
+            candidate = os.path.join(self.img_folder, f"{img_id}{ext}")
+            if os.path.exists(candidate):
+                return candidate, img_id
+        return None, img_id
+
+    # ------------------------------------------------------------------
+    def __len__(self) -> int:
+        return len(self.records) * self.samples_per_image
+
+    def __getitem__(self, idx: int) -> Dict[str, Any]:
+        record_idx = idx // self.samples_per_image
+        record = self.records[record_idx]
+
+        rng = random.Random(self.seed * 1_000_003 + idx) if self.deterministic else random
+
+        img_path, img_id = self._find_image(record, record_idx)
+        if img_path is None:
+            img = Image.new("RGB", (self.img_size, self.img_size), (128, 128, 128))
         else:
             img = Image.open(img_path).convert("RGB")
-            W, H = img.size
-        
-        # Extract hierarchical annotations
-        para_verts, line_verts, word_verts = self.extract_hierarchy(rec, (W, H))
-        
-        # Create masks for all levels
-        para_mask, line_mask, word_mask = self.create_hierarchical_masks(
-            para_verts, line_verts, word_verts, (W, H)
+        W, H = img.size
+
+        # --- SAM geometry: long side to img_size, pad bottom-right ---
+        scale = self.img_size / max(W, H)
+        nw, nh = int(round(W * scale)), int(round(H * scale))
+        img = img.resize((nw, nh), Image.BILINEAR)
+
+        canvas = Image.new("RGB", (self.img_size, self.img_size), (0, 0, 0))
+        canvas.paste(img, (0, 0))
+        image = torch.from_numpy(
+            np.asarray(canvas, dtype=np.float32).transpose(2, 0, 1) / 255.0
         )
-        
-        # Resize masks
-        resize_transform = transforms.Resize((self.img_size, self.img_size))
-        para_mask = resize_transform(para_mask.unsqueeze(0)).squeeze(0)
-        line_mask = resize_transform(line_mask.unsqueeze(0)).squeeze(0)
-        word_mask = resize_transform(word_mask.unsqueeze(0)).squeeze(0)
-        
-        # Create prompt
-        cx, cy = self.create_prompt_from_hierarchy(para_verts, (W, H))
-        point_coords = torch.tensor([[[cx * self.img_size, cy * self.img_size]]], dtype=torch.float32)
-        point_labels = torch.tensor([[1]], dtype=torch.long)
-        
-        # Transform image
-        img_t = self.transform(img)
-        
+
+        # --- sample one nested instance ---
+        tree = self.extract_nested(record)
+        para = rng.choice(tree)
+        line = rng.choice(para["lines"])
+        word = rng.choice(line["words"])
+
+        # Masks rasterise at their own decoder resolution; the vertex scale
+        # composes the image resize with the decoder's downsampling factor.
+        mask_scale = scale * (self.mask_size / self.img_size)
+        word_scale = scale * (self.word_mask_size / self.img_size)
+
+        cx, cy = self.centroid(word, scale)
+        cx = min(max(cx, 0.0), self.img_size - 1)
+        cy = min(max(cy, 0.0), self.img_size - 1)
+
         return {
-            "image": img_t,
-            "original_size": (self.img_size, self.img_size),
-            "point_coords": point_coords,
-            "point_labels": point_labels,
-            # Hierarchical ground truth masks
-            "gt_para_mask": para_mask.unsqueeze(0),  # (1, H, W)
-            "gt_line_mask": line_mask.unsqueeze(0),  # (1, H, W)
-            "gt_word_mask": word_mask.unsqueeze(0),  # (1, H, W)
-            # Metadata
+            "image": image,
+            "point_coords": torch.tensor([[cx, cy]], dtype=torch.float32),
+            "point_labels": torch.tensor([1], dtype=torch.int64),
+            # Ground truth, each at the resolution it is supervised at
+            "gt_word_mask": self.polygon_to_mask(word, word_scale, self.word_mask_size).unsqueeze(0),
+            "gt_word_mask_lr": self.polygon_to_mask(word, mask_scale, self.mask_size).unsqueeze(0),
+            "gt_line_mask": self.polygon_to_mask(line["verts"], mask_scale, self.mask_size).unsqueeze(0),
+            "gt_para_mask": self.polygon_to_mask(para["verts"], mask_scale, self.mask_size).unsqueeze(0),
+            # Geometry needed to undo the resize-and-pad at inference
+            "input_size": (nh, nw),
+            "original_size": (H, W),
             "image_id": img_id,
-            "num_paragraphs": len(para_verts),
-            "num_lines": len(line_verts),
-            "num_words": len(word_verts),
+            **self._text_mask(tree, scale),
         }
-    
-    def __len__(self):
-        return len(self.records)
+
+    @classmethod
+    def from_records(cls, records: List[dict], img_folder: str = "", **kwargs):
+        """Build from in-memory annotations, bypassing disk. Used by the tests."""
+        ds = cls(root="", split="", records=records, **kwargs)
+        ds.img_folder = img_folder
+        return ds
+
+    def _text_mask(self, tree, scale: float) -> Dict[str, Any]:
+        """Union of every word polygon: the S-Decoder's pixel-level target."""
+        if not self.include_text_mask:
+            return {}
+        size = self.text_mask_size
+        canvas = Image.new("L", (size, size), 0)
+        draw = ImageDraw.Draw(canvas)
+        s = scale * (size / self.img_size)
+        for para in tree:
+            for line in para["lines"]:
+                for word in line["words"]:
+                    pts = _as_xy(word) * s
+                    if len(pts) >= 3:
+                        draw.polygon([(float(x), float(y)) for x, y in pts], fill=1)
+        arr = torch.from_numpy(np.array(canvas, dtype=np.float32)).unsqueeze(0)
+        # The S-Decoder emits both a coarse and a refined mask; supervise both.
+        lr = torch.nn.functional.interpolate(
+            arr.unsqueeze(0), (self.mask_size, self.mask_size), mode="nearest"
+        )[0]
+        return {"gt_text_mask": arr, "gt_text_mask_lr": lr}
 
 
-def collate_fn(batch):
-    """Custom collate function (returns list of dicts)"""
-    return batch
+def collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Stack into real batch tensors so the decoder runs once, not once per image."""
+    return {
+        "image": torch.stack([b["image"] for b in batch]),
+        "point_coords": torch.stack([b["point_coords"] for b in batch]),
+        "point_labels": torch.stack([b["point_labels"] for b in batch]),
+        "gt_word_mask": torch.stack([b["gt_word_mask"] for b in batch]),
+        "gt_word_mask_lr": torch.stack([b["gt_word_mask_lr"] for b in batch]),
+        "gt_line_mask": torch.stack([b["gt_line_mask"] for b in batch]),
+        "gt_para_mask": torch.stack([b["gt_para_mask"] for b in batch]),
+        "input_size": [b["input_size"] for b in batch],
+        "original_size": [b["original_size"] for b in batch],
+        "image_id": [b["image_id"] for b in batch],
+        **({k: torch.stack([b[k] for b in batch])
+            for k in ("gt_text_mask", "gt_text_mask_lr")}
+           if "gt_text_mask" in batch[0] else {}),
+    }
+
+
+class HierTextEvalDataset(HierTextHierarchicalDataset):
+    """Whole-image evaluation: every instance at every level, not one sampled triple.
+
+    Instance-matched PQ needs the full set of ground-truth polygons per image.
+    Polygons are returned as scaled vertex arrays rather than rasterised masks so
+    the loader stays light - an image with ~126 words would otherwise ship ~8 MB
+    of boolean masks per sample.
+    """
+
+    def __getitem__(self, idx: int) -> Dict[str, Any]:
+        record = self.records[idx]
+
+        img_path, img_id = self._find_image(record, idx)
+        if img_path is None:
+            img = Image.new("RGB", (self.img_size, self.img_size), (128, 128, 128))
+        else:
+            img = Image.open(img_path).convert("RGB")
+        W, H = img.size
+
+        scale = self.img_size / max(W, H)
+        nw, nh = int(round(W * scale)), int(round(H * scale))
+        img = img.resize((nw, nh), Image.BILINEAR)
+        canvas = Image.new("RGB", (self.img_size, self.img_size), (0, 0, 0))
+        canvas.paste(img, (0, 0))
+        image = torch.from_numpy(
+            np.asarray(canvas, dtype=np.float32).transpose(2, 0, 1) / 255.0
+        )
+
+        mask_scale = scale * (self.mask_size / self.img_size)
+        word_scale = scale * (self.word_mask_size / self.img_size)
+
+        tree = self.extract_nested(record)
+        word_polys, line_polys, para_polys = [], [], []
+        for para in tree:
+            para_polys.append(_as_xy(para["verts"]) * mask_scale)
+            for line in para["lines"]:
+                line_polys.append(_as_xy(line["verts"]) * mask_scale)
+                for word in line["words"]:
+                    word_polys.append(_as_xy(word) * word_scale)
+
+        return {
+            "image": image,
+            "word_polys": word_polys,   # at word_mask_size
+            "line_polys": line_polys,   # at mask_size
+            "para_polys": para_polys,   # at mask_size
+            "input_size": (nh, nw),
+            "original_size": (H, W),
+            "scale": scale,
+            "image_id": img_id,
+        }
+
+
+def eval_collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Images stack; per-image instance lists stay as lists of varying length."""
+    return {
+        "image": torch.stack([b["image"] for b in batch]),
+        "word_polys": [b["word_polys"] for b in batch],
+        "line_polys": [b["line_polys"] for b in batch],
+        "para_polys": [b["para_polys"] for b in batch],
+        "input_size": [b["input_size"] for b in batch],
+        "original_size": [b["original_size"] for b in batch],
+        "scale": [b["scale"] for b in batch],
+        "image_id": [b["image_id"] for b in batch],
+    }
+
+
+def rasterize_polys(polys, size: int) -> List[np.ndarray]:
+    """Rasterise already-scaled polygons into boolean instance masks."""
+    out = []
+    for pts in polys:
+        mask = Image.new("L", (size, size), 0)
+        if len(pts) >= 3:
+            ImageDraw.Draw(mask).polygon([(float(x), float(y)) for x, y in pts], fill=1)
+        arr = np.array(mask, dtype=bool)
+        if arr.any():
+            out.append(arr)
+    return out

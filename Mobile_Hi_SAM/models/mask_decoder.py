@@ -136,8 +136,15 @@ class MaskDecoder(nn.Module):
         output_tokens = output_tokens.unsqueeze(0).expand(sparse_prompt_embeddings.size(0), -1, -1)
         tokens = torch.cat((output_tokens, sparse_prompt_embeddings), dim=1)
 
-        # Expand per-image data in batch direction to be per-mask
-        src = torch.repeat_interleave(image_embeddings, tokens.shape[0], dim=0)   # (1, 256, 64, 64)
+        # Expand per-image data in batch direction to be per-mask.
+        # SAM's convention is one image against many prompts, in which case
+        # image_embeddings is (1, C, H, W) and must be repeated. When the caller
+        # passes a real batch (B images, B prompt sets) the embeddings already
+        # line up with the tokens and repeating would produce B**2 copies.
+        if image_embeddings.shape[0] == tokens.shape[0]:
+            src = image_embeddings
+        else:
+            src = torch.repeat_interleave(image_embeddings, tokens.shape[0], dim=0)
         if dense_prompt_embeddings is not None:
             src = src + dense_prompt_embeddings
         pos_src = torch.repeat_interleave(image_pe, tokens.shape[0], dim=0)
@@ -285,8 +292,15 @@ class HiDecoder(nn.Module):
         output_tokens = output_tokens.unsqueeze(0).expand(sparse_prompt_embeddings.size(0), -1, -1)
         tokens = torch.cat((output_tokens, sparse_prompt_embeddings), dim=1)
 
-        # Expand per-image data in batch direction to be per-mask
-        src = torch.repeat_interleave(image_embeddings, tokens.shape[0], dim=0)   # (1, 256, 64, 64)
+        # Expand per-image data in batch direction to be per-mask.
+        # SAM's convention is one image against many prompts, in which case
+        # image_embeddings is (1, C, H, W) and must be repeated. When the caller
+        # passes a real batch (B images, B prompt sets) the embeddings already
+        # line up with the tokens and repeating would produce B**2 copies.
+        if image_embeddings.shape[0] == tokens.shape[0]:
+            src = image_embeddings
+        else:
+            src = torch.repeat_interleave(image_embeddings, tokens.shape[0], dim=0)
         if dense_prompt_embeddings is not None:
             src = src + dense_prompt_embeddings
         pos_src = torch.repeat_interleave(image_pe, tokens.shape[0], dim=0)

@@ -8,7 +8,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Type, Tuple
-from einops import rearrange
 from .common import LayerNorm2d
 import math
 
@@ -63,10 +62,11 @@ class AttentionBlock(nn.Module):
             key=sparse_embeddings,
             value=sparse_embeddings)[0])
         sparse_embeddings = self.norm1(sparse_embeddings)
+        flat = image_embeddings.flatten(2).transpose(1, 2)  # (B, HW, C)
         sparse_embeddings = sparse_embeddings + self.dropout2(self.cross_attn(
             query=sparse_embeddings,
-            key=rearrange(image_embeddings, "b c h w -> b (h w) c"),
-            value=rearrange(image_embeddings, "b c h w -> b (h w) c"))[0])
+            key=flat,
+            value=flat)[0])
         sparse_embeddings = sparse_embeddings + self.dropout3(self.ffn(self.norm2(sparse_embeddings)))
 
         return sparse_embeddings
@@ -102,14 +102,22 @@ class ModalAligner(nn.Module):
         ])
 
     def forward(self, image_embeddings: torch.Tensor) -> torch.Tensor:
-        bs, c, h, w = image_embeddings.shape
-        spatial_attention = self.conv(image_embeddings)  # bs, len, 64, 64
-        spatial_attention = spatial_attention.reshape(bs, self.prompt_len, -1)
-        spatial_attention = F.sigmoid(spatial_attention)[..., None]  # bs, len, h*w, 1
-        feat = image_embeddings.reshape(bs, c, -1).permute(0, 2, 1)[:, None, ...]  # bs, 1, h*w, c
-        sparse_embeddings = (feat * spatial_attention).mean(dim=2)  # bs, len, c
+        """image_embeddings: (B, C, H, W) -> sparse prompt tokens (B, prompt_len, C).
+
+        Each token is an attention-weighted *average* of the feature map. The
+        original divided by H*W instead of by the attention mass, which made a
+        token's norm encode how large its region was rather than what was in it;
+        and it materialised a (B, L, H*W, C) intermediate - 402 MB at B=8 - to
+        compute a contraction einsum does in place.
+        """
+        attn = torch.sigmoid(self.conv(image_embeddings).flatten(2))   # (B, L, HW)
+        feat = image_embeddings.flatten(2).transpose(1, 2)             # (B, HW, C)
+
+        numerator = torch.einsum("blp,bpc->blc", attn, feat)           # (B, L, C)
+        denominator = attn.sum(dim=2, keepdim=True).clamp_min(1e-6)    # (B, L, 1)
+        sparse_embeddings = numerator / denominator
 
         for layer in self.transformer_layers:
             sparse_embeddings = layer(sparse_embeddings, image_embeddings)
-            
+
         return sparse_embeddings
