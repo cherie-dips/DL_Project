@@ -320,6 +320,8 @@ def main():
     parser.add_argument("--run_dir", required=True)
     parser.add_argument("--root", required=True, help="HierText dataset root")
     parser.add_argument("--split", default="validation")
+    parser.add_argument("--gt_dir", default="gt",
+                        help="annotation subdirectory under --root (default: gt)")
     parser.add_argument("--max_samples", type=int, default=None)
     parser.add_argument("--protocol", choices=["prompted", "grid"], default="prompted")
     parser.add_argument("--prompts", choices=["grid", "modal"], default="grid",
@@ -341,7 +343,8 @@ def main():
     )
 
     dataset = HierTextEvalDataset(
-        args.root, split=args.split, max_items=args.max_samples, img_size=1024
+        args.root, split=args.split, max_items=args.max_samples, img_size=1024,
+        gt_dir=args.gt_dir,
     )
     loader = DataLoader(
         dataset, batch_size=1, shuffle=False,

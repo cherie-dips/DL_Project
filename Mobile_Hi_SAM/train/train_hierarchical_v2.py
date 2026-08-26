@@ -126,6 +126,7 @@ def build_loader(args, split, shuffle, deterministic):
         deterministic=deterministic,
         include_text_mask=args.enable_s_decoder,
         stroke_gt_dir=stroke_dir,
+        gt_dir=args.gt_dir,
     )
     loader = DataLoader(
         dataset,
@@ -143,6 +144,8 @@ def build_loader(args, split, shuffle, deterministic):
 def main():
     parser = argparse.ArgumentParser(description="Train Mobile-Hi-SAM")
     parser.add_argument("--root", required=True, help="HierText dataset root")
+    parser.add_argument("--gt_dir", default="gt",
+                        help="annotation subdirectory under --root (default: gt)")
     parser.add_argument("--checkpoint_encoder", required=True, help="MobileSAM checkpoint")
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch_size", type=int, default=8)

@@ -118,6 +118,7 @@ class HierTextHierarchicalDataset(Dataset):
         include_text_mask: bool = False,
         text_mask_size: int = 1024,
         stroke_gt_dir: Optional[str] = None,
+        gt_dir: str = "gt",
         records: Optional[List[dict]] = None,
     ):
         self.root = root
@@ -152,7 +153,7 @@ class HierTextHierarchicalDataset(Dataset):
         if stroke_gt_dir and not os.path.isdir(stroke_gt_dir):
             raise FileNotFoundError(f"stroke_gt_dir does not exist: {stroke_gt_dir}")
 
-        self.jsonl_path = os.path.join(root, "gt", f"{split}.jsonl")
+        self.jsonl_path = os.path.join(root, gt_dir, f"{split}.jsonl")
         self.img_folder = os.path.join(root, split)
 
         self.offsets = None
