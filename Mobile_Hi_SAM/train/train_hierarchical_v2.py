@@ -9,6 +9,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -57,7 +58,8 @@ def to_device(batch, device):
     return batch
 
 
-def run_epoch(model, loader, criterion, optimizer, scaler, device, epoch, use_amp, train=True):
+def run_epoch(model, loader, criterion, optimizer, scaler, device, epoch, use_amp,
+              train=True, log_every=0, total_epochs=None):
     model.train(train)
     torch.set_grad_enabled(train)
 
@@ -65,7 +67,12 @@ def run_epoch(model, loader, criterion, optimizer, scaler, device, epoch, use_am
     checked_dead = not train  # only meaningful on a training step
 
     desc = f"{'Epoch' if train else 'Val  '} {epoch}"
-    pbar = tqdm(loader, desc=desc, leave=False)
+    # A tqdm bar redirected to a file is just carriage-return noise; the periodic
+    # lines below are what a background run actually needs.
+    interactive = sys.stderr.isatty()
+    pbar = tqdm(loader, desc=desc, leave=False, disable=not interactive)
+    n_steps = len(loader)
+    window, t_window = {}, time.time()
 
     for batch in pbar:
         batch = to_device(batch, device)
@@ -99,7 +106,22 @@ def run_epoch(model, loader, criterion, optimizer, scaler, device, epoch, use_am
 
         for k, v in logs.items():
             totals[k] = totals.get(k, 0.0) + v
+            window[k] = window.get(k, 0.0) + v
         count += 1
+
+        # Periodic progress: averaged over the window since the last line, so a
+        # long epoch reports movement instead of going quiet.
+        if log_every and count % log_every == 0:
+            elapsed = time.time() - t_window
+            avg = {k: v / log_every for k, v in window.items()}
+            tag = "train" if train else "val  "
+            suffix = f"/{total_epochs}" if total_epochs else ""
+            print(f"  [{tag}] epoch {epoch}{suffix}  step {count}/{n_steps}  "
+                  f"loss={avg['total']:.4f}  word={avg['word']:.4f} "
+                  f"line={avg['line']:.4f} para={avg['para']:.4f}  "
+                  f"({elapsed / log_every:.2f}s/step)", flush=True)
+            window, t_window = {}, time.time()
+
         pbar.set_postfix({
             "loss": f"{logs['total']:.4f}",
             "w": f"{logs['word']:.3f}",
@@ -155,6 +177,8 @@ def main():
     parser.add_argument("--samples_per_image", type=int, default=4,
                         help="nested instances drawn per image per epoch")
     parser.add_argument("--num_workers", type=int, default=4)
+    parser.add_argument("--log_every", type=int, default=25,
+                        help="print a progress line every N steps (0 to disable)")
     parser.add_argument("--resume", default=None)
     parser.add_argument("--save_freq", type=int, default=5)
     parser.add_argument("--run_name", default=None)
@@ -173,6 +197,10 @@ def main():
                         help="root holding Hi-SAM's contributed stroke masks; the "
                              "split subdirectory is <root>/<split>_gt")
     parser.add_argument("--transformer_mlp_dim", type=int, default=2048)
+    parser.add_argument("--adapter", choices=["linear", "context"], default="linear",
+                        help="linear: 1x1 conv (receptive field 1 cell). "
+                             "context: dilated 3x3 stack (receptive field 21 cells), "
+                             "for testing whether the paragraph level is context-starved.")
     parser.add_argument("--unfreeze_encoder", action="store_true",
                         help="fine-tune TinyViT as well. Hi-SAM trains its whole "
                              "encoder, so freezing ours is a second variable on top "
@@ -242,6 +270,7 @@ def main():
         enable_s_decoder=args.enable_s_decoder,
         transformer_mlp_dim=args.transformer_mlp_dim,
         freeze_encoder=not args.unfreeze_encoder,
+        adapter=args.adapter,
     ).to(device)
     print(model.parameter_report())
 
@@ -300,6 +329,7 @@ def main():
         train_logs = run_epoch(
             model, train_loader, criterion, optimizer, scaler,
             device, epoch, args.use_amp, train=True,
+            log_every=args.log_every, total_epochs=args.epochs,
         )
 
         val_logs = None
