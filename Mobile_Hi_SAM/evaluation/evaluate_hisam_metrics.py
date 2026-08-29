@@ -86,6 +86,7 @@ def load_model(run_dir: str, device, encoder_ckpt=None, strict=True):
         enable_hierarchical=True,
         enable_s_decoder=config.get("enable_s_decoder", False),
         transformer_mlp_dim=config.get("transformer_mlp_dim", 2048),
+        adapter=config.get("adapter", "linear"),
         init_decoder_from_sam=False,   # trained weights are about to overwrite these
     ).to(device)
 

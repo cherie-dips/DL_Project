@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import torch
 import torch.nn as nn
 
-from ..adapters.adapter import MobileToHiSAMAdapter
+from ..adapters.adapter import build_adapter
 from .mask_decoder import HiDecoder, MaskDecoder
 from .mobile_encoder import MobileSAMEncoder
 from .modal_aligner import ModalAligner
@@ -49,6 +49,7 @@ class MobileHiSAM(nn.Module):
         init_decoder_from_sam: bool = True,
         transformer_mlp_dim: int = 2048,
         freeze_encoder: bool = True,
+        adapter: str = "linear",
     ):
         super().__init__()
 
@@ -71,12 +72,21 @@ class MobileHiSAM(nn.Module):
         # is a flag rather than a fixed choice - see REMEDIATION_PLAN.md.
         for p in self.image_encoder.parameters():
             p.requires_grad = not freeze_encoder
+        if not freeze_encoder:
+            # TinyViT is constructed with num_classes=1000 and so carries an
+            # ImageNet classification head. Segmentation never reaches it, so
+            # leaving it trainable would put 320,640 dead parameters in the
+            # optimiser - exactly the bug this rewrite removed elsewhere.
+            for name, param in self.image_encoder.named_parameters():
+                if name.startswith(("encoder.head.", "encoder.norm_head.")):
+                    param.requires_grad = False
 
         # ------------------------------------------------------------------
         # 2. Adapter (trainable)
         # ------------------------------------------------------------------
-        print("[MobileHiSAM] Building adapter...")
-        self.adapter = MobileToHiSAMAdapter(in_dim=embed_dim, out_dim=embed_dim)
+        print(f"[MobileHiSAM] Building adapter ({adapter})...")
+        self.adapter_kind = adapter
+        self.adapter = build_adapter(adapter, in_dim=embed_dim, out_dim=embed_dim)
 
         # ------------------------------------------------------------------
         # 3. Modal Aligner (trainable) - self-generated prompts
@@ -253,10 +263,19 @@ class MobileHiSAM(nn.Module):
     # ----------------------------------------------------------------------
     def train(self, mode: bool = True):
         super().train(mode)
-        # Keep the encoder's BatchNorm buffers fixed even when its weights are
-        # being fine-tuned: TinyViT is full of BatchNorm and a batch of 4 gives
-        # far too noisy an estimate to re-fit running statistics on.
-        self.image_encoder.eval()
+        if self.freeze_encoder:
+            self.image_encoder.eval()
+        else:
+            # Fine-tuning needs the encoder in train mode: TinyViT's attention
+            # caches its relative-position bias table in eval() and only indexes
+            # the parameter in train(), so an eval-mode encoder silently gives
+            # attention_biases no gradient at all.
+            self.image_encoder.train(mode)
+            # But BatchNorm statistics still stay fixed - a batch of 2 is far too
+            # small to re-estimate running statistics from.
+            for module in self.image_encoder.modules():
+                if isinstance(module, nn.modules.batchnorm._BatchNorm):
+                    module.eval()
         self.prompt_encoder.eval()
         return self
 
@@ -456,7 +475,8 @@ class MobileHiSAM(nn.Module):
         lines = []
         total = trainable = 0
         for name, module in [
-            ("image_encoder (frozen)", self.image_encoder),
+            (f"image_encoder ({'frozen' if self.freeze_encoder else 'fine-tuned'})",
+             self.image_encoder),
             ("adapter", self.adapter),
             ("modal_aligner", self.modal_aligner),
             ("prompt_encoder (frozen)", self.prompt_encoder),
