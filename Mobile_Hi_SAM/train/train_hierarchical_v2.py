@@ -145,7 +145,7 @@ def build_loader(args, split, shuffle, deterministic):
         points_per_line=args.points_per_line,
         max_items=args.max_samples if split == "train" else args.max_val_samples,
         deterministic=deterministic,
-        augment=args.augment and split == "train",
+        augment=(not args.no_augment) and split == "train",
         holdout=args.val_images,
         holdout_side="train" if split == "train" else "val",
     )
@@ -175,12 +175,20 @@ def main():
                         help="lines sampled per image (Hi-SAM uses 10)")
     parser.add_argument("--points_per_line", type=int, default=2,
                         help="stroke points sampled per line (Hi-SAM uses 2)")
-    parser.add_argument("--augment", action="store_true",
-                        help="colour jitter on training images")
+    parser.add_argument("--no_augment", action="store_true",
+                        help="disable ColorJitter/RandomRotate/LargeScaleJitter; "
+                             "Hi-SAM always applies them, so this breaks parity")
     parser.add_argument("--checkpoint_encoder", required=True, help="MobileSAM checkpoint")
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--weight_decay", type=float, default=0.05,
+                        help="Hi-SAM uses 0.05")
+    parser.add_argument("--lr_drop_epoch", type=int, default=None,
+                        help="StepLR step size; defaults to --epochs, i.e. no drop, "
+                             "which is what Hi-SAM's defaults amount to")
+    parser.add_argument("--cosine_lr", action="store_true",
+                        help="cosine annealing instead of Hi-SAM's StepLR")
     parser.add_argument("--max_samples", type=int, default=None)
     parser.add_argument("--max_val_samples", type=int, default=200)
     parser.add_argument("--val_images", type=int, default=400,
@@ -279,13 +287,22 @@ def main():
         tversky_beta=args.tversky_beta,
     )
 
+    # Hi-SAM: AdamW(weight_decay=0.05) with StepLR(lr_drop_epoch). Their default
+    # lr_drop_epoch equals max_epoch_num (both 70), so the drop never fires and
+    # the learning rate is constant for the whole run. Cosine annealing is a
+    # different optimisation problem, so it is opt-in rather than the default.
     optimizer = torch.optim.AdamW(
         model.parameter_groups(args.lr, args.encoder_lr),
-        lr=args.lr, weight_decay=1e-4,
+        lr=args.lr, weight_decay=args.weight_decay,
     )
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=args.epochs, eta_min=args.lr * 0.01
-    )
+    if args.cosine_lr:
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=args.epochs, eta_min=args.lr * 0.01
+        )
+    else:
+        scheduler = torch.optim.lr_scheduler.StepLR(
+            optimizer, step_size=args.lr_drop_epoch or args.epochs, gamma=0.1
+        )
     scaler = torch.amp.GradScaler(device.type, enabled=args.use_amp)
 
     # A rough budget so a laptop run is not started blind. Fine-tuning the
