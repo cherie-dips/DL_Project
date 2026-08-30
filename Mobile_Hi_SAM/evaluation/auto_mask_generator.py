@@ -225,6 +225,15 @@ class MobileHiSAMAutoMaskGenerator:
         )
         groups = group_by_affinity(affinity, para_thresh)
 
-        line_out = (masks[:, -2, :, :] > self.model.mask_threshold)
-        word_out = (word_masks[:, 0, :, :] > self.model.mask_threshold)
+        # Map back to original image coordinates the way Hi-SAM does: crop the
+        # padded region away, then resize. Scaling contour coordinates instead
+        # leaves predictions that fell on the padding pointing outside the image.
+        word_full = self.model.postprocess_masks(
+            word_masks[:, 0:1, :, :], self.input_size, self.original_size
+        )
+        line_full = self.model.postprocess_masks(
+            masks[:, -2:-1, :, :], self.input_size, self.original_size
+        )
+        word_out = (word_full[:, 0] > self.model.mask_threshold)
+        line_out = (line_full[:, 0] > self.model.mask_threshold)
         return word_out, line_out, groups
