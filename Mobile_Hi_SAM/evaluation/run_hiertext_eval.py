@@ -173,11 +173,9 @@ def predict(model, dataset, device, fg_points_num: int, batch_points_num: int,
 
         paragraphs = []
         if word_masks is not None:
-            # word masks are 384 across the padded 1024 square; the image content
-            # occupies (nh, nw) of that square.
-            wsize = word_masks.shape[-1]
-            scale_x = W / (nw * wsize / 1024.0)
-            scale_y = H / (nh * wsize / 1024.0)
+            # Masks already come back at original resolution from
+            # postprocess_masks, so contours need no rescaling.
+            scale_x = scale_y = 1.0
             wm = word_masks.cpu().numpy()
             for group in groups:
                 lines_out = []
@@ -234,12 +232,13 @@ def main():
 
     from Mobile_Hi_SAM.models.mobile_hisam_model import pick_device
     from Mobile_Hi_SAM.evaluation.evaluate_hisam_metrics import load_model
-    from Mobile_Hi_SAM.train.hisam_hiertext_dataset import HiSAMHierTextDataset
+    from Mobile_Hi_SAM.train.hisam_hiertext_dataset import HiSAMInferenceDataset
 
     device = pick_device(args.device)
     model, _ = load_model(args.run_dir, device, args.encoder_ckpt, strict=True)
-    dataset = HiSAMHierTextDataset(
-        args.root, split=args.split, deterministic=True, augment=False
+    # Inference needs images only; the derived gt exists for train alone.
+    dataset = HiSAMInferenceDataset(
+        args.root, split=args.split, max_items=args.max_images
     )
     preds = predict(model, dataset, device, args.fg_points_num, args.batch_points_num,
                     args.score_thresh, args.nms_thresh, args.para_thresh,
