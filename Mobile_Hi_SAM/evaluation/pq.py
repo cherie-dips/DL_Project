@@ -24,13 +24,45 @@ from typing import Dict, List, Sequence, Tuple
 import numpy as np
 
 
-def iou(mask1: np.ndarray, mask2: np.ndarray) -> float:
-    """Intersection over union of two boolean masks."""
-    inter = np.logical_and(mask1, mask2).sum()
+def bbox(mask: np.ndarray):
+    """(y0, y1, x0, x1) of a boolean mask, or None if empty."""
+    rows = np.any(mask, axis=1)
+    cols = np.any(mask, axis=0)
+    if not rows.any():
+        return None
+    y = np.where(rows)[0]
+    x = np.where(cols)[0]
+    return int(y[0]), int(y[-1]) + 1, int(x[0]), int(x[-1]) + 1
+
+
+def boxes_disjoint(a, b) -> bool:
+    return a is None or b is None or (
+        a[1] <= b[0] or b[1] <= a[0] or a[3] <= b[2] or b[3] <= a[2]
+    )
+
+
+def iou(mask1: np.ndarray, mask2: np.ndarray, box1=None, box2=None) -> float:
+    """Intersection over union of two boolean masks.
+
+    Bounding boxes short-circuit the common case: instance masks at these
+    resolutions are mostly empty, and pairwise IoU over hundreds of them is what
+    makes the grid protocol slow. Disjoint boxes mean IoU 0 without touching the
+    pixels; overlapping ones are compared only inside the intersecting window.
+    """
+    if box1 is None:
+        box1 = bbox(mask1)
+    if box2 is None:
+        box2 = bbox(mask2)
+    if boxes_disjoint(box1, box2):
+        return 0.0
+    y0, y1 = max(box1[0], box2[0]), min(box1[1], box2[1])
+    x0, x1 = max(box1[2], box2[2]), min(box1[3], box2[3])
+    sub1, sub2 = mask1[y0:y1, x0:x1], mask2[y0:y1, x0:x1]
+    inter = int(np.logical_and(sub1, sub2).sum())
     if inter == 0:
         return 0.0
-    union = np.logical_or(mask1, mask2).sum()
-    return float(inter) / float(union) if union > 0 else 0.0
+    union = int(mask1.sum()) + int(mask2.sum()) - inter
+    return inter / union if union > 0 else 0.0
 
 
 def match_instances(
@@ -46,12 +78,15 @@ def match_instances(
     matches: List[Tuple[int, int, float]] = []
     used_gt = set()
 
+    pred_boxes = [bbox(m) for m in pred_masks]
+    gt_boxes = [bbox(m) for m in gt_masks]
+
     for p_idx, pred in enumerate(pred_masks):
         best_iou, best_gt = 0.0, None
         for g_idx, gt in enumerate(gt_masks):
             if g_idx in used_gt:
                 continue
-            score = iou(pred, gt)
+            score = iou(pred, gt, pred_boxes[p_idx], gt_boxes[g_idx])
             if score > best_iou:
                 best_iou, best_gt = score, g_idx
         if best_gt is not None and best_iou > iou_threshold:

@@ -91,3 +91,50 @@ metric, or downweight paragraph in the selection criterion.
 
 Word and line improved monotonically for all 12 epochs. Paragraph oscillated
 between 1.72 and 2.23 throughout.
+
+## Grid protocol (deployable — no ground truth at inference)
+
+`--protocol grid --n_side 12 --min_score 0.35`, epoch 12, 25 validation images:
+
+| Level | IoU | PQ | SQ | RQ | F | P | R |
+|---|---|---|---|---|---|---|---|
+| Word | 12.00 | 3.23 | 53.89 | 4.55 | 19.33 | 17.99 | 24.07 |
+| Text-line | 20.62 | 7.23 | 51.65 | 10.25 | 31.32 | 31.97 | 34.86 |
+| Layout | 38.32 | 9.36 | 62.63 | 13.35 | 50.87 | 55.47 | 54.52 |
+
+Far below the prompted numbers, and that gap is the real one: the prompted
+protocol is handed a correct prompt per instance, which no deployment has.
+
+**SQ is high (52-63%) while RQ is low (5-13%).** The masks that do match are
+good; the problem is entirely how many instances are proposed. Diagnosed on one
+image at the line level: 144 grid prompts produced 252 raw instances against 54
+ground-truth ones, and NMS barely helped (239 surviving at threshold 0.7, 211
+even at 0.3) because the spurious fragments do not overlap each other.
+
+Two fixes, one applied:
+
+1. **Quality gating (applied).** The decoder's IoU head separates real from
+   spurious predictions well — scores span 0.13-0.78, and thresholding tracks
+   the ground-truth count (GT 54; score>=0.3 keeps 125, score>=0.5 keeps 28).
+   `--min_score` and `--min_area` now gate predictions before NMS, as SAM's
+   automatic mask generator does with `pred_iou_thresh`. Layout PQ went from
+   1.92 to 9.36 on the same data. This also vindicates keeping the IoU head
+   (C8) rather than deleting it.
+
+2. **Prompt density (not addressed).** A 12x12 grid is 144 points for ~122
+   words per image, on a regular lattice rather than on the words, so most words
+   are never prompted. SAM uses 32x32 = 1024 points. That is the main reason
+   word-level grid PQ (3.23) is so far below line (7.23) and layout (9.36) —
+   larger regions are easier to hit with a sparse grid. Denser prompting costs
+   roughly linearly: ~6 s/image at 144 points, so ~45 s/image at 1024.
+
+**`--min_score` was chosen by inspecting the validation split**, so the number
+above is optimistic as a held-out estimate. Set it on a separate split before
+quoting it.
+
+### Grid protocol performance
+
+Instance matching and NMS were O(n^2) in full-mask comparisons, which dominated
+runtime at hundreds of instances per image. Bounding-box short-circuiting cut
+this ~7x (>40 s/image to ~6 s/image); 150x150 instance matching now takes 0.02 s.
+Verified against the hand-computed PQ case, unchanged at 0.4000 / 0.6000 / 0.6667.
