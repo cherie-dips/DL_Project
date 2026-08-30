@@ -340,14 +340,16 @@ class MobileHiSAM(nn.Module):
         if self.hi_decoder is None:
             raise RuntimeError("decode_prompts requires enable_hierarchical=True")
 
-        sparse, dense = self.prompt_encoder(
+        # Hi-SAM discards the prompt encoder's dense output and passes no
+        # dense_prompt_embeddings to either decoder, so no_mask_embed is never
+        # added to src. Passing it changes what the transformer sees.
+        sparse, _ = self.prompt_encoder(
             points=(point_coords, point_labels), boxes=None, masks=None
         )
         masks, iou_pred, word_masks = self.hi_decoder(
             image_embeddings=embeddings,       # (1,C,H,W) -> repeated to N inside
             image_pe=self.prompt_encoder.get_dense_pe(),
             sparse_prompt_embeddings=sparse,
-            dense_prompt_embeddings=dense,
             multimask_output=True,
         )
         return {
@@ -388,16 +390,15 @@ class MobileHiSAM(nn.Module):
                     "aligner is not built otherwise."
                 )
             sparse = self.modal_aligner(embeddings)
-            dense = self._empty_dense(embeddings.shape[0])
         else:
             points = (batch["point_coords"], batch["point_labels"])
-            sparse, dense = self.prompt_encoder(points=points, boxes=None, masks=None)
+            sparse, _ = self.prompt_encoder(points=points, boxes=None, masks=None)
 
+        # No dense_prompt_embeddings: Hi-SAM passes none to either decoder.
         masks, iou_pred, word_masks = self.hi_decoder(
             image_embeddings=embeddings,
             image_pe=self.prompt_encoder.get_dense_pe(),
             sparse_prompt_embeddings=sparse,
-            dense_prompt_embeddings=dense,
             multimask_output=True,
         )
 
@@ -420,7 +421,6 @@ class MobileHiSAM(nn.Module):
                 image_embeddings=embeddings,
                 image_pe=self.prompt_encoder.get_dense_pe(),
                 sparse_prompt_embeddings=aligner_sparse,
-                dense_prompt_embeddings=self._empty_dense(embeddings.shape[0]),
                 multimask_output=False,
             )
             # Text foreground is unambiguous, so single-mask mode: token 0 feeds
@@ -469,7 +469,6 @@ class MobileHiSAM(nn.Module):
                 image_embeddings=embeddings,
                 image_pe=self.prompt_encoder.get_dense_pe(),
                 sparse_prompt_embeddings=aligner_sparse,
-                dense_prompt_embeddings=self._empty_dense(embeddings.shape[0]),
                 multimask_output=False,
             )
             out["pixel"] = s_masks

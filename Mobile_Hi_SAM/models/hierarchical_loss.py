@@ -16,14 +16,60 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from .point_sample import (
+    calculate_uncertainty,
+    get_uncertain_point_coords_with_randomness,
+    point_sample,
+)
 
-def dice_loss(pred: torch.Tensor, target: torch.Tensor, smooth: float = 1e-5) -> torch.Tensor:
-    """Dice over logits. Symmetric in false positives and false negatives."""
+# Hi-SAM's loss_hi_masks constants.
+HI_NUM_POINTS = 128 * 128
+HI_OVERSAMPLE_RATIO = 3.0
+HI_IMPORTANCE_RATIO = 0.75
+
+
+def dice_loss(pred: torch.Tensor, target: torch.Tensor, smooth: float = 1.0) -> torch.Tensor:
+    """Dice over logits, with Hi-SAM's smoothing (+1 top and bottom)."""
     pred = torch.sigmoid(pred).flatten(1)
     target = target.flatten(1)
-    intersection = (pred * target).sum(dim=1)
-    union = pred.sum(dim=1) + target.sum(dim=1)
-    return 1 - ((2.0 * intersection + smooth) / (union + smooth)).mean()
+    numerator = 2.0 * (pred * target).sum(dim=1)
+    denominator = pred.sum(dim=1) + target.sum(dim=1)
+    return (1 - (numerator + smooth) / (denominator + smooth)).mean()
+
+
+def hi_mask_loss(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    focal_alpha: float = 0.25,
+    focal_gamma: float = 2.0,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Focal + dice evaluated on uncertainty-sampled points, as Hi-SAM does.
+
+    Sampling is boundary-biased, so this is not a cheaper approximation of the
+    dense loss - it weights the decision boundary far more heavily, and trains a
+    different model.
+    """
+    with torch.no_grad():
+        coords = get_uncertain_point_coords_with_randomness(
+            pred, calculate_uncertainty,
+            HI_NUM_POINTS, HI_OVERSAMPLE_RATIO, HI_IMPORTANCE_RATIO,
+        )
+        point_targets = point_sample(target, coords, align_corners=False).squeeze(1)
+    point_logits = point_sample(pred, coords, align_corners=False).squeeze(1)
+
+    bce = F.binary_cross_entropy_with_logits(point_logits, point_targets, reduction="none")
+    p = torch.sigmoid(point_logits)
+    p_t = p * point_targets + (1 - p) * (1 - point_targets)
+    focal = bce * ((1 - p_t) ** focal_gamma)
+    if focal_alpha >= 0:
+        alpha_t = focal_alpha * point_targets + (1 - focal_alpha) * (1 - point_targets)
+        focal = alpha_t * focal
+    focal = focal.mean(dim=1).mean()
+
+    numerator = 2.0 * (torch.sigmoid(point_logits) * point_targets).sum(dim=1)
+    denominator = torch.sigmoid(point_logits).sum(dim=1) + point_targets.sum(dim=1)
+    dice = (1 - (numerator + 1.0) / (denominator + 1.0)).mean()
+    return focal, dice
 
 
 def tversky_loss(
@@ -147,9 +193,14 @@ class HierarchicalLoss(nn.Module):
             return tversky_loss(pred, target, self.tversky_alpha, self.tversky_beta)
         return dice_loss(pred, target)
 
-    def _level(self, pred, target) -> Tuple[torch.Tensor, Dict[str, float]]:
-        region = self._region_loss(pred, target)
-        focal = focal_loss(pred, target, self.focal_alpha, self.focal_gamma)
+    def _level(self, pred, target, point_sampled: bool = True):
+        """Hi-SAM's hierarchical levels use loss_hi_masks (point-sampled); its
+        S-Decoder uses loss_masks (dense)."""
+        if point_sampled and not self.use_tversky:
+            focal, region = hi_mask_loss(pred, target, self.focal_alpha, self.focal_gamma)
+        else:
+            region = self._region_loss(pred, target)
+            focal = focal_loss(pred, target, self.focal_alpha, self.focal_gamma)
         total = self.weight_dice * region + self.weight_focal * focal
         return total, {"region": region.item(), "focal": focal.item()}
 
@@ -202,11 +253,11 @@ class HierarchicalLoss(nn.Module):
         # S-Decoder pixel-level branch: whole-image text foreground, prompted by
         # the ModalAligner. This is what puts the aligner in the gradient path.
         if self.weight_pixel > 0 and "pixel_hr" in outputs and "gt_text_mask" in batch:
-            loss_hr, _ = self._level(outputs["pixel_hr"], batch["gt_text_mask"])
+            loss_hr, _ = self._level(outputs["pixel_hr"], batch["gt_text_mask"], point_sampled=False)
             loss_pixel = loss_hr
             logs["pixel_hr"] = loss_hr.item()
             if "pixel" in outputs and "gt_text_mask_lr" in batch:
-                loss_lr, _ = self._level(outputs["pixel"], batch["gt_text_mask_lr"])
+                loss_lr, _ = self._level(outputs["pixel"], batch["gt_text_mask_lr"], point_sampled=False)
                 loss_pixel = loss_pixel + loss_lr
                 logs["pixel_lr"] = loss_lr.item()
             # Quality heads for both S-Decoder branches, same treatment as the
