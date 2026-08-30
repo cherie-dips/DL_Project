@@ -41,6 +41,7 @@ from Mobile_Hi_SAM.models.mobile_hisam_model import (  # noqa: E402
     MobileHiSAM,
     pick_device,
 )
+from Mobile_Hi_SAM.evaluation.pq import bbox as pq_bbox, iou as pq_iou  # noqa: E402
 from Mobile_Hi_SAM.evaluation.metrics import (  # noqa: E402
     MetricAccumulator,
     binarize,
@@ -123,27 +124,29 @@ def grid_points(input_size, n_side: int, device):
 
 
 def dedupe(masks, scores, iou_threshold=0.7):
-    """NMS over masks: keep the highest-scoring of any overlapping group."""
+    """NMS over masks: keep the highest-scoring of any overlapping group.
+
+    Bounding boxes short-circuit the pairwise comparison - a grid of prompts
+    produces hundreds of instances per image, and comparing every surviving pair
+    pixel-by-pixel is what dominates the grid protocol's runtime.
+    """
     if not masks:
         return []
     order = np.argsort(-np.asarray(scores))
-    kept = []
+    kept, kept_boxes = [], []
     for idx in order:
         candidate = masks[idx]
-        area = candidate.sum()
-        if area == 0:
+        box = pq_bbox(candidate)
+        if box is None:
             continue
         duplicate = False
-        for k in kept:
-            inter = np.logical_and(candidate, k).sum()
-            if inter == 0:
-                continue
-            union = np.logical_or(candidate, k).sum()
-            if union > 0 and inter / union > iou_threshold:
+        for k, kbox in zip(kept, kept_boxes):
+            if pq_iou(candidate, k, box, kbox) > iou_threshold:
                 duplicate = True
                 break
         if not duplicate:
             kept.append(candidate)
+            kept_boxes.append(box)
     return kept
 
 
@@ -225,7 +228,7 @@ def pick_target(instances, centre, model, level):
 
 @torch.no_grad()
 def evaluate_grid(model, loader, device, n_side=16, nms_iou=0.7, batch_prompts=32,
-                  use_modal=False):
+                  use_modal=False, min_score=0.4, min_area=16):
     """Deployable: prompts come from a grid (or the ModalAligner), never from GT."""
     acc = {lvl: MetricAccumulator(METRIC_KEYS) for lvl in LEVELS}
 
@@ -262,13 +265,21 @@ def evaluate_grid(model, loader, device, n_side=16, nms_iou=0.7, batch_prompts=3
             for j, (lvl, key) in enumerate((("word", "word_hr"), ("line", "line"), ("para", "para"))):
                 logits = out[key]
                 for i in range(logits.shape[0]):
+                    # A grid prompt that lands on background still produces a
+                    # mask. Without a quality gate the protocol over-predicts
+                    # several-fold and RQ collapses, so use the decoder's own
+                    # IoU head to reject them - this is what SAM's automatic mask
+                    # generator does with pred_iou_thresh.
+                    score = float(scores[i, min(j, scores.shape[1] - 1)])
+                    if score < min_score:
+                        continue
                     pred = binarize(logits[i, 0])
                     if pred.sum() == 0:
                         continue
                     union[lvl] = pred if union[lvl] is None else torch.maximum(union[lvl], pred)
-                    for inst in to_instances(pred):
+                    for inst in to_instances(pred, min_area=min_area):
                         collected[lvl][0].append(inst)
-                        collected[lvl][1].append(float(scores[i, min(j, scores.shape[1] - 1)]))
+                        collected[lvl][1].append(score)
 
         for lvl in LEVELS:
             instances = dedupe(collected[lvl][0], collected[lvl][1], nms_iou)
@@ -329,6 +340,11 @@ def main():
                         help="grid protocol only: prompt source")
     parser.add_argument("--n_side", type=int, default=16)
     parser.add_argument("--nms_iou", type=float, default=0.7)
+    parser.add_argument("--min_score", type=float, default=0.4,
+                        help="grid protocol: reject predictions whose predicted "
+                             "IoU is below this (SAM's pred_iou_thresh analogue)")
+    parser.add_argument("--min_area", type=int, default=16,
+                        help="grid protocol: drop instances smaller than this")
     parser.add_argument("--encoder_ckpt", default=None)
     parser.add_argument("--allow_partial_load", action="store_true")
     parser.add_argument("--num_workers", type=int, default=4)
@@ -359,6 +375,7 @@ def main():
         results = evaluate_grid(
             model, loader, device, n_side=args.n_side,
             nms_iou=args.nms_iou, use_modal=(args.prompts == "modal"),
+            min_score=args.min_score, min_area=args.min_area,
         )
 
     print_table(results, args.protocol)
