@@ -116,8 +116,8 @@ class MaskDecoder(nn.Module):
         else:
             mask_slice = slice(0, 1)
         masks = masks[:, mask_slice, :, :]
+        hr_masks = hr_masks[:, mask_slice, :, :]
         iou_pred = iou_pred[:, mask_slice]
-        # hr_masks stays as-is (only 1 mask)
         return masks, hr_masks, iou_pred, iou_pred_hr
 
     def predict_masks(

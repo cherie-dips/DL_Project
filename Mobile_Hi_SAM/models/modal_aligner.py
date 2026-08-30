@@ -104,18 +104,25 @@ class ModalAligner(nn.Module):
     def forward(self, image_embeddings: torch.Tensor) -> torch.Tensor:
         """image_embeddings: (B, C, H, W) -> sparse prompt tokens (B, prompt_len, C).
 
-        Each token is an attention-weighted *average* of the feature map. The
-        original divided by H*W instead of by the attention mass, which made a
-        token's norm encode how large its region was rather than what was in it;
-        and it materialised a (B, L, H*W, C) intermediate - 402 MB at B=8 - to
-        compute a contraction einsum does in place.
+        Reproduces Hi-SAM exactly:
+
+            spatial_attention = sigmoid(conv(x))            # (B, L, HW)
+            feat              = x reshaped                  # (B, 1, HW, C)
+            sparse            = (feat * attn).mean(dim=2)   # divide by H*W
+
+        Dividing by H*W rather than by the attention mass means a token's norm
+        encodes how large its region is as well as what is in it. That is
+        arguably a flaw, but it is THEIR flaw, and changing it changes what the
+        S-Decoder is prompted with - so it stays for comparability.
+
+        The only deviation is mechanical: einsum contracts directly instead of
+        materialising the (B, L, HW, C) product, which is 402 MB at B=8. Verified
+        numerically identical to their formulation.
         """
+        bs, c, h, w = image_embeddings.shape
         attn = torch.sigmoid(self.conv(image_embeddings).flatten(2))   # (B, L, HW)
         feat = image_embeddings.flatten(2).transpose(1, 2)             # (B, HW, C)
-
-        numerator = torch.einsum("blp,bpc->blc", attn, feat)           # (B, L, C)
-        denominator = attn.sum(dim=2, keepdim=True).clamp_min(1e-6)    # (B, L, 1)
-        sparse_embeddings = numerator / denominator
+        sparse_embeddings = torch.einsum("blp,bpc->blc", attn, feat) / (h * w)
 
         for layer in self.transformer_layers:
             sparse_embeddings = layer(sparse_embeddings, image_embeddings)
