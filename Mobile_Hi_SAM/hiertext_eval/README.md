@@ -43,3 +43,29 @@ rounding). Shifting every predicted polygon degrades it as expected:
 | 25 px | 0.149 | 0.215 | 0.131 |
 
 Requires `absl-py` and `six` (both small); `apache_beam` is not needed.
+
+## Inference protocol
+
+Predictions come from `evaluation/auto_mask_generator.py`, which reproduces
+Hi-SAM's `hi_sam/modeling/auto_mask_generator.py`. Their protocol is **not** a
+prompt grid:
+
+1. ModalAligner -> S-Decoder -> predicted text foreground;
+2. up to `fg_points_num` (600) points sampled uniformly at random **from that
+   foreground**, so every prompt lands on predicted text;
+3. H-Decoder over those points in batches of `batch_points_num` (100);
+4. drop predictions whose **line** score is below `score_thresh` (0.5);
+5. Matrix NMS (SOLOv2, gaussian, sigma 2.0) on the **line** masks; keep
+   `updated_score > nms_thresh` (0.5);
+6. group lines into paragraphs by pairwise IoU of their predicted paragraph
+   masks (`get_para_iou`), union-find above `para_thresh` (0.5).
+
+`matrix_nms` and `get_para_iou` are copied verbatim. Verified: a duplicate mask
+decays 0.80 -> 0.108 while a disjoint one holds 0.85 -> 0.850, and the affinity
+grouping recovers the correct paragraph partition.
+
+This matters. A grid puts most prompts on background, where the decoder still
+emits a mask, which is why the earlier grid-prompted numbers understated the
+model so badly. Prompt-free inference therefore **requires the S-Decoder** -
+without it there is no foreground to sample from, and the generator raises
+rather than silently falling back.

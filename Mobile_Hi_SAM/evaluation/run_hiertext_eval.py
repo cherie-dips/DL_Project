@@ -3,9 +3,10 @@ Run the official HierText evaluator on Mobile-Hi-SAM predictions.
 
 Two steps, either of which can be run alone:
 
-  1. ``predict``  - run inference over a split and write a prediction JSON in
-                    HierText's format (paragraphs -> lines -> words, each word a
-                    polygon in ORIGINAL image coordinates).
+  1. ``predict``  - run Hi-SAM's prompt-free inference (foreground-sampled
+                    prompts, Matrix NMS, paragraph grouping by IoU affinity) and
+                    write a prediction JSON in HierText's format (paragraphs ->
+                    lines -> words, each word a polygon in ORIGINAL coordinates).
   2. ``score``    - hand that JSON and the ground-truth JSON to the vendored
                     ``hiertext_eval`` and print its metrics.
 
@@ -147,64 +148,43 @@ def group_lines_into_paragraphs(para_masks: List[np.ndarray],
 
 
 @torch.no_grad()
-def predict(model, dataset, device, n_side: int, min_score: float,
-            nms_iou: float, batch_prompts: int, max_images: Optional[int]) -> dict:
-    """Grid-prompt inference -> HierText prediction annotations."""
-    from Mobile_Hi_SAM.evaluation.metrics import binarize, to_instances
-    from Mobile_Hi_SAM.evaluation.evaluate_hisam_metrics import grid_points, dedupe
+def predict(model, dataset, device, fg_points_num: int, batch_points_num: int,
+            score_thresh: float, nms_thresh: float, para_thresh: float,
+            from_low_res: bool, max_images: Optional[int]) -> dict:
+    """Hi-SAM's prompt-free inference -> HierText prediction annotations."""
+    from Mobile_Hi_SAM.evaluation.auto_mask_generator import MobileHiSAMAutoMaskGenerator
+    from Mobile_Hi_SAM.evaluation.metrics import to_instances
 
+    generator = MobileHiSAMAutoMaskGenerator(model)
     annotations = []
     total = min(len(dataset), max_images) if max_images else len(dataset)
 
     for idx in tqdm(range(total), desc="predicting"):
         sample = dataset[idx]
-        image = sample["image"].unsqueeze(0).to(device)
         nh, nw = sample["input_size"]
         H, W = sample["original_size"]
 
-        embeddings = model.encode(image)
-        points = grid_points((nh, nw), n_side, device)
-
-        line_masks, para_masks, word_masks, scores = [], [], [], []
-        for start in range(0, points.shape[0], batch_prompts):
-            chunk = points[start:start + batch_prompts]
-            n = chunk.shape[0]
-            out = model.decode_prompts(
-                embeddings, chunk.unsqueeze(1),
-                torch.ones(n, 1, dtype=torch.int64, device=device),
-            )
-            iou = out["iou"].detach().cpu().numpy()
-            for i in range(n):
-                if float(iou[i, 1]) < min_score:      # line-token quality
-                    continue
-                line = binarize(out["line"][i, 0]).cpu().numpy().astype(bool)
-                if not line.any():
-                    continue
-                line_masks.append(line)
-                para_masks.append(binarize(out["para"][i, 0]).cpu().numpy().astype(bool))
-                word_masks.append(binarize(out["word_hr"][i, 0]).cpu().numpy().astype(bool))
-                scores.append(float(iou[i, 1]))
-
-        keep = _nms_indices(line_masks, scores, nms_iou)
-        line_masks = [line_masks[i] for i in keep]
-        para_masks = [para_masks[i] for i in keep]
-        word_masks = [word_masks[i] for i in keep]
+        generator.set_image(sample["image"].unsqueeze(0).to(device), (nh, nw), (H, W))
+        word_masks, line_masks, groups = generator.predict(
+            from_low_res=from_low_res, fg_points_num=fg_points_num,
+            batch_points_num=batch_points_num, score_thresh=score_thresh,
+            nms_thresh=nms_thresh, para_thresh=para_thresh,
+        )
 
         paragraphs = []
-        if line_masks:
-            # word_hr masks are 384 across the padded 1024 square, and the image
-            # content occupies (nh, nw) of it, so a mask pixel maps to original
-            # pixels by 1024/384 then W/nw (and H/nh).
-            for group in group_lines_into_paragraphs(para_masks):
+        if word_masks is not None:
+            # word masks are 384 across the padded 1024 square; the image content
+            # occupies (nh, nw) of that square.
+            wsize = word_masks.shape[-1]
+            scale_x = W / (nw * wsize / 1024.0)
+            scale_y = H / (nh * wsize / 1024.0)
+            wm = word_masks.cpu().numpy()
+            for group in groups:
                 lines_out = []
                 for li in group:
                     words = []
-                    for inst in to_instances(torch.from_numpy(word_masks[li]), min_area=8):
-                        poly = mask_to_polygon(
-                            inst,
-                            scale_x=W / (nw * word_scale()),
-                            scale_y=H / (nh * word_scale()),
-                        )
+                    for inst in to_instances(torch.from_numpy(wm[li]), min_area=8):
+                        poly = mask_to_polygon(inst, scale_x, scale_y)
                         if poly:
                             words.append({"vertices": poly, "text": ""})
                     if words:
@@ -215,33 +195,6 @@ def predict(model, dataset, device, n_side: int, min_score: float,
         annotations.append({"image_id": sample["image_id"], "paragraphs": paragraphs})
 
     return {"annotations": annotations}
-
-
-def model_mask_size() -> int:
-    return 256
-
-
-def word_scale() -> float:
-    """word_hr masks are 384 across the padded 1024 square."""
-    return 384.0 / 1024.0
-
-
-def _nms_indices(masks, scores, threshold):
-    if not masks:
-        return []
-    from Mobile_Hi_SAM.evaluation.pq import bbox, iou as mask_iou
-    order = np.argsort(-np.asarray(scores))
-    kept, kept_boxes, kept_idx = [], [], []
-    for i in order:
-        box = bbox(masks[i])
-        if box is None:
-            continue
-        if any(mask_iou(masks[i], k, box, kb) > threshold for k, kb in zip(kept, kept_boxes)):
-            continue
-        kept.append(masks[i])
-        kept_boxes.append(box)
-        kept_idx.append(int(i))
-    return kept_idx
 
 
 def main():
@@ -262,10 +215,13 @@ def main():
     p_pred.add_argument("--split", default="validation")
     p_pred.add_argument("--out", required=True)
     p_pred.add_argument("--encoder_ckpt", default=None)
-    p_pred.add_argument("--n_side", type=int, default=16)
-    p_pred.add_argument("--min_score", type=float, default=0.4)
-    p_pred.add_argument("--nms_iou", type=float, default=0.7)
-    p_pred.add_argument("--batch_prompts", type=int, default=32)
+    # Hi-SAM's predict() defaults
+    p_pred.add_argument("--fg_points_num", type=int, default=600)
+    p_pred.add_argument("--batch_points_num", type=int, default=100)
+    p_pred.add_argument("--score_thresh", type=float, default=0.5)
+    p_pred.add_argument("--nms_thresh", type=float, default=0.5)
+    p_pred.add_argument("--para_thresh", type=float, default=0.5)
+    p_pred.add_argument("--from_low_res", action="store_true")
     p_pred.add_argument("--max_images", type=int, default=None)
     p_pred.add_argument("--device", default="auto")
 
@@ -285,8 +241,9 @@ def main():
     dataset = HiSAMHierTextDataset(
         args.root, split=args.split, deterministic=True, augment=False
     )
-    preds = predict(model, dataset, device, args.n_side, args.min_score,
-                    args.nms_iou, args.batch_prompts, args.max_images)
+    preds = predict(model, dataset, device, args.fg_points_num, args.batch_points_num,
+                    args.score_thresh, args.nms_thresh, args.para_thresh,
+                    args.from_low_res, args.max_images)
     Path(args.out).write_text(json.dumps(preds))
     print(f"Wrote {len(preds['annotations'])} predictions to {args.out}")
 
