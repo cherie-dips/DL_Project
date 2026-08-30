@@ -295,8 +295,11 @@ def main():
     )
     scaler = torch.amp.GradScaler(device.type, enabled=args.use_amp)
 
-    # A rough budget so a laptop run is not started blind.
-    per_image = {"cuda": 0.05, "mps": 0.18, "cpu": 1.2}.get(device.type, 0.5)
+    # A rough budget so a laptop run is not started blind. Fine-tuning the
+    # encoder costs ~2.5x per image (measured on M4: 0.20 -> 0.50 s), so the
+    # estimate has to depend on it or it understates a long run by half.
+    frozen_rate = {"cuda": 0.05, "mps": 0.20, "cpu": 1.2}.get(device.type, 0.5)
+    per_image = frozen_rate * (1.0 if not args.unfreeze_encoder else 2.5)
     n_train = len(train_set)
     epoch_min = n_train * per_image / 60
     print(f"\n{n_train:,} training samples "
