@@ -167,9 +167,12 @@ class MaskDecoder(nn.Module):
 
         # add for high res mask
         upscaled_embedding = self.output_upscaling_hr(upscaled_embedding)
-        hyper_in_hr = self.output_hypernetworks_mlps_hr(mask_tokens_out[:, 0, :])
+        # unsqueeze(1) makes this (B,1,C) @ (B,C,HW) -> (B,1,HW). Without it a
+        # 2-D (B,C) operand broadcasts to (1,B,C) and the result is (B,B,HW),
+        # which is only right at B=1 - the batch size Hi-SAM trains at.
+        hyper_in_hr = self.output_hypernetworks_mlps_hr(mask_tokens_out[:, 0, :]).unsqueeze(1)
         b, c, h, w = upscaled_embedding.shape
-        hr_masks = (hyper_in_hr @ upscaled_embedding.view(b, c, h * w)).view(b, -1, h, w)  # (1,1,1024,1024)
+        hr_masks = (hyper_in_hr @ upscaled_embedding.view(b, c, h * w)).view(b, -1, h, w)
 
         # Generate mask quality predictions
         iou_pred = self.iou_prediction_head(iou_token_out)  # (1, 4)

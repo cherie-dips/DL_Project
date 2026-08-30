@@ -433,6 +433,52 @@ class MobileHiSAM(nn.Module):
 
         return out
 
+    def forward_grouped(self, batch: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+        """Hi-SAM's batching: each image carries its own group of prompts.
+
+        The encoder runs once per image; the H-Decoder then decodes that image's
+        whole prompt group against the single embedding. Hierarchical outputs are
+        concatenated across the batch and line up with the concatenated targets.
+        The S-Decoder runs once per image, prompted by the ModalAligner.
+        """
+        if self.hi_decoder is None:
+            raise RuntimeError("forward_grouped requires enable_hierarchical=True")
+
+        embeddings = self.encode(batch["image"])          # (B, C, 64, 64)
+        counts = batch["prompt_counts"]
+        coords, labels = batch["point_coords"], batch["point_labels"]
+
+        groups, offset = [], 0
+        for i, n in enumerate(counts):
+            groups.append(
+                self.decode_prompts(
+                    embeddings[i:i + 1], coords[offset:offset + n], labels[offset:offset + n]
+                )
+            )
+            offset += n
+
+        out = {
+            key: torch.cat([g[key] for g in groups], dim=0)
+            for key in ("word", "line", "para", "word_hr", "iou")
+        }
+
+        if self.enable_s_decoder:
+            # One call returns both the coarse and the high-res branch.
+            aligner_sparse = self.modal_aligner(embeddings)
+            s_masks, hr_masks, s_iou, s_iou_hr = self.mask_decoder(
+                image_embeddings=embeddings,
+                image_pe=self.prompt_encoder.get_dense_pe(),
+                sparse_prompt_embeddings=aligner_sparse,
+                dense_prompt_embeddings=self._empty_dense(embeddings.shape[0]),
+                multimask_output=False,
+            )
+            out["pixel"] = s_masks
+            out["pixel_hr"] = hr_masks
+            out["pixel_iou_lr"] = s_iou
+            out["pixel_iou"] = s_iou_hr
+
+        return out
+
     def forward(self, batch: Dict[str, Any], **kwargs):
         return self.forward_hierarchical(batch, **kwargs)
 

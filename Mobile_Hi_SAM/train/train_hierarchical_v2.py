@@ -32,9 +32,9 @@ from Mobile_Hi_SAM.models.mobile_hisam_model import (  # noqa: E402
     pick_device,
 )
 from Mobile_Hi_SAM.models.hierarchical_loss import HierarchicalLoss  # noqa: E402
-from Mobile_Hi_SAM.train.hiertext_hierarchical_dataset import (  # noqa: E402
-    HierTextHierarchicalDataset,
-    collate_fn,
+from Mobile_Hi_SAM.train.hisam_hiertext_dataset import (  # noqa: E402
+    HiSAMHierTextDataset,
+    hisam_collate_fn,
 )
 
 MASK_KEYS = (
@@ -45,8 +45,10 @@ MASK_KEYS = (
     "gt_word_mask_lr",
     "gt_line_mask",
     "gt_para_mask",
+    "gt_text_mask",
+    "gt_text_mask_lr",
 )
-OPTIONAL_KEYS = ("gt_text_mask", "gt_text_mask_lr")
+OPTIONAL_KEYS = ()
 
 
 def to_device(batch, device):
@@ -81,7 +83,7 @@ def run_epoch(model, loader, criterion, optimizer, scaler, device, epoch, use_am
             optimizer.zero_grad(set_to_none=False)
 
         with torch.autocast(device_type=device.type, enabled=use_amp):
-            outputs = model.forward_hierarchical(batch)
+            outputs = model.forward_grouped(batch)
             loss, logs = criterion(outputs, batch)
 
         if train:
@@ -134,48 +136,57 @@ def run_epoch(model, loader, criterion, optimizer, scaler, device, epoch, use_am
 
 
 def build_loader(args, split, shuffle, deterministic):
-    stroke_dir = (
-        os.path.join(args.stroke_gt_root, f"{split}_gt")
-        if args.enable_s_decoder and args.stroke_gt_root
-        else None
-    )
-    dataset = HierTextHierarchicalDataset(
+    dataset = HiSAMHierTextDataset(
         args.root,
-        split=split,
-        max_items=args.max_samples if split == "train" else args.max_val_samples,
+        split="train",                      # derived gt exists for train only
+        gt_json=args.gt_json,
         img_size=1024,
-        samples_per_image=args.samples_per_image if split == "train" else 1,
+        max_lines=args.max_lines,
+        points_per_line=args.points_per_line,
+        max_items=args.max_samples if split == "train" else args.max_val_samples,
         deterministic=deterministic,
-        include_text_mask=args.enable_s_decoder,
-        stroke_gt_dir=stroke_dir,
-        gt_dir=args.gt_dir,
+        augment=args.augment and split == "train",
+        holdout=args.val_images,
+        holdout_side="train" if split == "train" else "val",
     )
     loader = DataLoader(
         dataset,
         batch_size=args.batch_size,
         shuffle=shuffle,
-        collate_fn=collate_fn,
+        collate_fn=hisam_collate_fn,
         num_workers=args.num_workers,
-        pin_memory=(args.device == "cuda" or torch.cuda.is_available()),
+        pin_memory=(device_is_cuda()),
         drop_last=shuffle,
         persistent_workers=args.num_workers > 0,
     )
     return dataset, loader
 
 
+def device_is_cuda() -> bool:
+    return torch.cuda.is_available()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Train Mobile-Hi-SAM")
     parser.add_argument("--root", required=True, help="HierText dataset root")
-    parser.add_argument("--gt_dir", default="gt",
-                        help="annotation subdirectory under --root (default: gt)")
+    parser.add_argument("--gt_json", default=None,
+                        help="Hi-SAM's derived gt (default: <root>/train_shrink_vert.json)")
+    parser.add_argument("--max_lines", type=int, default=10,
+                        help="lines sampled per image (Hi-SAM uses 10)")
+    parser.add_argument("--points_per_line", type=int, default=2,
+                        help="stroke points sampled per line (Hi-SAM uses 2)")
+    parser.add_argument("--augment", action="store_true",
+                        help="colour jitter on training images")
     parser.add_argument("--checkpoint_encoder", required=True, help="MobileSAM checkpoint")
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--max_samples", type=int, default=None)
-    parser.add_argument("--max_val_samples", type=int, default=500)
-    parser.add_argument("--samples_per_image", type=int, default=4,
-                        help="nested instances drawn per image per epoch")
+    parser.add_argument("--max_val_samples", type=int, default=200)
+    parser.add_argument("--val_images", type=int, default=400,
+                        help="images held out of train for the validation loss; "
+                             "Hi-SAM ships derived gt for the train split only")
+
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--log_every", type=int, default=25,
                         help="print a progress line every N steps (0 to disable)")
@@ -190,21 +201,16 @@ def main():
                         help="disable validation (then is_best falls back to train loss)")
 
     # architecture
-    parser.add_argument("--enable_s_decoder", action="store_true",
-                        help="also build Hi-SAM's S-Decoder (stroke-level branch); "
-                             "requires --stroke_gt_root")
-    parser.add_argument("--stroke_gt_root", default=None,
-                        help="root holding Hi-SAM's contributed stroke masks; the "
-                             "split subdirectory is <root>/<split>_gt")
+    parser.add_argument("--no_s_decoder", action="store_true",
+                        help="drop Hi-SAM's stroke-level S-Decoder (parity needs it)")
     parser.add_argument("--transformer_mlp_dim", type=int, default=2048)
     parser.add_argument("--adapter", choices=["linear", "context"], default="linear",
                         help="linear: 1x1 conv (receptive field 1 cell). "
                              "context: dilated 3x3 stack (receptive field 21 cells), "
                              "for testing whether the paragraph level is context-starved.")
-    parser.add_argument("--unfreeze_encoder", action="store_true",
-                        help="fine-tune TinyViT as well. Hi-SAM trains its whole "
-                             "encoder, so freezing ours is a second variable on top "
-                             "of the encoder swap.")
+    parser.add_argument("--freeze_encoder", action="store_true",
+                        help="freeze TinyViT. Hi-SAM trains its whole encoder, so "
+                             "this breaks parity - it is an ablation, not the default.")
     parser.add_argument("--encoder_lr", type=float, default=None,
                         help="learning rate for the encoder (default: lr/10)")
 
@@ -221,16 +227,6 @@ def main():
     parser.add_argument("--tversky_beta", type=float, default=0.7)
 
     args = parser.parse_args()
-
-    if args.enable_s_decoder and not args.stroke_gt_root:
-        parser.error(
-            "--enable_s_decoder needs --stroke_gt_root. The S-Decoder predicts "
-            "stroke-level text, and HierText has no stroke annotations of its "
-            "own; Hi-SAM's authors contributed them as a separate download (see "
-            "their datasets/data_preparation.md). Filled word polygons are not a "
-            "valid substitute - training on them would not reproduce Hi-SAM's "
-            "fgIOU. Omit --enable_s_decoder to train the H-Decoder alone."
-        )
 
     device = pick_device(args.device)
     if args.use_amp and not amp_supported(device):
@@ -256,10 +252,7 @@ def main():
     train_set, train_loader = build_loader(args, "train", shuffle=True, deterministic=False)
     val_loader = None
     if not args.no_val:
-        try:
-            _, val_loader = build_loader(args, "validation", shuffle=False, deterministic=True)
-        except FileNotFoundError:
-            print("[warn] no validation split found; falling back to train loss for is_best")
+        _, val_loader = build_loader(args, "val", shuffle=False, deterministic=True)
 
     print("\nLoading model...")
     model = MobileHiSAM(
@@ -267,9 +260,9 @@ def main():
         img_size=1024,
         embed_dim=256,
         enable_hierarchical=True,
-        enable_s_decoder=args.enable_s_decoder,
+        enable_s_decoder=not args.no_s_decoder,
         transformer_mlp_dim=args.transformer_mlp_dim,
-        freeze_encoder=not args.unfreeze_encoder,
+        freeze_encoder=args.freeze_encoder,
         adapter=args.adapter,
     ).to(device)
     print(model.parameter_report())
@@ -299,11 +292,11 @@ def main():
     # encoder costs ~2.5x per image (measured on M4: 0.20 -> 0.50 s), so the
     # estimate has to depend on it or it understates a long run by half.
     frozen_rate = {"cuda": 0.05, "mps": 0.20, "cpu": 1.2}.get(device.type, 0.5)
-    per_image = frozen_rate * (1.0 if not args.unfreeze_encoder else 2.5)
+    per_image = frozen_rate * (1.0 if args.freeze_encoder else 2.5)
     n_train = len(train_set)
     epoch_min = n_train * per_image / 60
     print(f"\n{n_train:,} training samples "
-          f"({train_set._n_records():,} images x {args.samples_per_image})")
+          f"({len(train_set):,} images x {args.max_lines} lines x {args.points_per_line} pts)")
     print(f"~{epoch_min:.0f} min/epoch estimated on {device.type}; "
           f"{args.epochs} epochs ~ {epoch_min * args.epochs / 60:.1f} h")
     if val_loader is not None:
