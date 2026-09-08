@@ -25,6 +25,10 @@ test/
 *.ckpt
 *.h5
 
+# The one checkpoint we keep: final model of the full fine-tuned run (epoch 12).
+# Optimizer state stripped so it fits under GitHub's 100 MB limit.
+!weights/mobile_hisam_final_epoch12.pth
+
 # ==========================
 #  BYTECODE / CACHE
 # ==========================

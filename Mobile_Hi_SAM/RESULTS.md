@@ -6,8 +6,12 @@ S-Decoder off, H-Decoder only.
 
 ## Headline — full run, 8,281 images, 12 epochs (~10 h on an M4)
 
-Use **`checkpoints/epoch_12.pth`**, not `best_model.pth` — see *Checkpoint
-selection* below.
+Use **`weights/mobile_hisam_final_epoch12.pth`** (repo root), not
+`best_model.pth` — see *Checkpoint selection* below. That file is the epoch-12
+checkpoint of this run with the optimiser state stripped, so it fits under
+GitHub's 100 MB limit; it carries `model_state_dict`, `config` and the full
+train/val logs. It loads for inference and evaluation, but training cannot be
+resumed from it. Every other checkpoint was deleted to reclaim disk.
 
 | Level | IoU | PQ | SQ | RQ | F | P | R |
 |---|---|---|---|---|---|---|---|
